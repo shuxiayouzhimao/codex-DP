@@ -11,6 +11,7 @@
     clickToDismiss: boolean;
     terminalHoldMs: number;
     workDecayMs: number;
+    autostart: boolean;
   }
 
   const SKINS = [
@@ -114,6 +115,18 @@
           >
         {/each}
       </div>
+    </section>
+
+    <section>
+      <h2>系统</h2>
+      <label class="row">
+        <input
+          type="checkbox"
+          checked={settings.autostart}
+          onchange={(e) => update({ autostart: e.currentTarget.checked })}
+        />
+        开机自启（登录 Windows 后自动运行）
+      </label>
     </section>
   {:else}
     <p>加载中…</p>

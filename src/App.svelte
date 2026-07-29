@@ -6,6 +6,7 @@
   import { PetRenderer } from "./lib/renderer";
   import { STATE_MAP } from "./lib/state-machine";
   import { startEventBridge, listenSessionFilter } from "./lib/events";
+  import { checkForUpdates } from "./lib/updater";
   import { PetState, type SessionMeta } from "./lib/petState";
   import type { AgentState } from "./lib/types";
 
@@ -15,6 +16,7 @@
     clickToDismiss: boolean;
     terminalHoldMs: number;
     workDecayMs: number;
+    autostart: boolean;
   }
 
   let canvas: HTMLCanvasElement;
@@ -104,6 +106,7 @@
       applySettings(e.payload)
     );
     void invoke<Settings>("get_settings").then(applySettings);
+    void checkForUpdates(); // 静默检查更新，不阻塞宠物启动
   });
   onDestroy(() => {
     renderer?.stop();

@@ -15,6 +15,7 @@ use tauri::{
 };
 
 use state_machine::EventRouter;
+use tauri_plugin_autostart::ManagerExt;
 
 /// “全部会话”菜单项 id 前缀；具体会话项为 "sess:source:sessionId"
 const SESS_PREFIX: &str = "sess:";
@@ -32,7 +33,7 @@ struct WindowState {
 /// 共享设置（配置面板/右键菜单修改，广播 settings-changed 给所有窗口）。
 /// 字段为 camelCase，与前端 Settings 接口一致。
 #[derive(Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
+#[serde(default, rename_all = "camelCase")]
 pub(crate) struct Settings {
     /// 皮肤："green" | "red"
     pub skin: String,
@@ -42,6 +43,8 @@ pub(crate) struct Settings {
     pub terminal_hold_ms: u64,
     /// 工作态无事件的安全网衰减
     pub work_decay_ms: u64,
+    /// 开机自启（同步到系统注册表 Run 键）
+    pub autostart: bool,
 }
 
 impl Default for Settings {
@@ -51,6 +54,7 @@ impl Default for Settings {
             click_to_dismiss: true,
             terminal_hold_ms: 30 * 60_000,
             work_decay_ms: 5 * 60_000,
+            autostart: true,
         }
     }
 }
@@ -116,7 +120,12 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let filter = state.router.get_filter();
     let sessions = state.router.list_sessions();
     let skin = state.settings.lock().unwrap().skin.clone();
+    let autostart_on = app.autolaunch().is_enabled().unwrap_or(false);
 
+    let autostart_i = CheckMenuItemBuilder::with_id("autostart", "开机自启")
+        .enabled(true)
+        .checked(autostart_on)
+        .build(app)?;
     let green_i = CheckMenuItemBuilder::with_id(format!("{SKIN_PREFIX}green"), "绿毛衣")
         .enabled(true)
         .checked(skin == "green")
@@ -157,8 +166,15 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .items(&sub_refs)
         .build()?;
 
-    let menu_refs: Vec<&dyn IsMenuItem<tauri::Wry>> =
-        vec![&show_i, &hide_i, &skin_sub, &sub, &config_i, &quit_i];
+    let menu_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![
+        &show_i,
+        &hide_i,
+        &skin_sub,
+        &sub,
+        &autostart_i,
+        &config_i,
+        &quit_i,
+    ];
     MenuBuilder::new(app).items(&menu_refs).build()
 }
 
@@ -176,7 +192,25 @@ pub(crate) fn refresh_menu(app: &AppHandle) {
     });
 }
 
-/// 菜单点击（应用级：托盘菜单与宠物右键菜单共用同一分发）：显示/隐藏/退出 + 换肤 + 打开设置 + 会话过滤
+/// 应用 autostart 设置到系统（注册表 Run 键），并把 Settings 落盘 + 广播 + 刷新菜单。
+fn apply_autostart(app: &AppHandle, enabled: bool) {
+    let mgr = app.autolaunch();
+    let r = if enabled { mgr.enable() } else { mgr.disable() };
+    if let Err(e) = r {
+        eprintln!("[pet-settings] autostart {} 失败: {e}", enabled);
+    }
+    let state = app.state::<AppState>();
+    let snapshot = {
+        let mut s = state.settings.lock().unwrap();
+        s.autostart = enabled;
+        s.clone()
+    };
+    save_settings(app, &snapshot);
+    let _ = app.emit("settings-changed", &snapshot);
+    refresh_menu(app);
+}
+
+/// 菜单点击（应用级：托盘菜单与宠物右键菜单共用同一分发）：显示/隐藏/退出 + 换肤 + 自启 + 打开设置 + 会话过滤
 fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
     let id = event.id.as_ref();
     match id {
@@ -193,6 +227,10 @@ fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         }
         "quit" => {
             app.exit(0);
+        }
+        "autostart" => {
+            let on = !app.autolaunch().is_enabled().unwrap_or(false);
+            apply_autostart(app, on);
         }
         "open-config" => {
             println!("[pet-menu] open-config clicked");
@@ -242,7 +280,14 @@ fn get_settings(app: AppHandle) -> Settings {
 
 #[tauri::command]
 fn set_settings(app: AppHandle, settings: Settings) {
+    // 同步自启到注册表（配置面板/外部改动统一在此生效）
+    let autostart = settings.autostart;
     *app.state::<AppState>().settings.lock().unwrap() = settings.clone();
+    let mgr = app.autolaunch();
+    let r = if autostart { mgr.enable() } else { mgr.disable() };
+    if let Err(e) = r {
+        eprintln!("[pet-settings] autostart {autostart} 失败: {e}");
+    }
     save_settings(&app, &settings);
     let _ = app.emit("settings-changed", &settings);
     refresh_menu(&app);
@@ -263,6 +308,9 @@ fn show_pet_menu(window: tauri::Window) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .manage(AppState {
             pending: Mutex::new(None),
             last_change: Mutex::new(Instant::now()),
@@ -301,6 +349,15 @@ pub fn run() {
             // 载入持久化设置（换肤勾选/广播以此为初值）
             if let Some(s) = load_settings(&handle) {
                 *handle.state::<AppState>().settings.lock().unwrap() = s;
+            }
+            // 应用自启设置到注册表（默认 true：首装即自启；用户关闭过则保持关闭）
+            {
+                let on = handle.state::<AppState>().settings.lock().unwrap().autostart;
+                let mgr = handle.autolaunch();
+                let r = if on { mgr.enable() } else { mgr.disable() };
+                if let Err(e) = r {
+                    eprintln!("[pet-settings] 启动应用 autostart={on} 失败: {e}");
+                }
             }
 
             // 恢复窗口位置；首次启动默认置于主屏右下
