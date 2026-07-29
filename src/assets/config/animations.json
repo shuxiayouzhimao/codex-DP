@@ -1,0 +1,26 @@
+{
+  "idle": {
+    "bob": { "amp": 3, "period": 1600 },
+    "breath": { "sy": 0.03, "period": 2000 }
+  },
+  "thinking": {
+    "tilt": { "amp": 7, "period": 900 },
+    "bob": { "amp": 1.5, "period": 1200 }
+  },
+  "tool-use": {
+    "shake": { "amp": 2, "period": 120 },
+    "bob": { "amp": 2, "period": 320 }
+  },
+  "waiting": {
+    "bounce": { "amp": 5, "period": 1100 }
+  },
+  "streaming": {
+    "bob": { "amp": 2, "period": 320 }
+  },
+  "success": {
+    "bounce": { "amp": 4, "period": 600 }
+  },
+  "error": {
+    "shake": { "amp": 2, "period": 250 }
+  }
+}

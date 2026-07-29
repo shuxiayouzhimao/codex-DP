@@ -1,0 +1,16 @@
+node_modules
+dist
+src-tauri/target
+src-tauri/gen
+.DS_Store
+*.log
+
+# 工具缓存
+tools/__pycache__/
+
+# 备份文件（hooks 安装器等生成）
+*.bak
+
+# 系统文件
+Thumbs.db
+Desktop.ini
