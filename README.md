@@ -2,7 +2,8 @@
 
 Windows 桌面宠物：实时反映编程 Agent（Claude Code / Codex CLI / Cursor）的工作状态——思考中、执行工具、等待审批、完成、出错，一眼可见。
 
-**技术栈**：Tauri 2（Rust）+ Svelte 5 + Vite 6 + TypeScript。常驻内存 ~37MB。
+**技术栈**：Tauri 2（Rust）+ Svelte 5 + Vite 6 + TypeScript。常驻内存 ~37MB。  
+**许可**：MIT（见 `LICENSE`）。贡献约定见 `AGENTS.md`。
 
 ![skins](docs/skins.png)
 
@@ -47,10 +48,11 @@ src-tauri/src/
   lib.rs             窗口/托盘/菜单/设置/settings.json/自启/命令
   server.rs          HTTP POST 事件通道（4271）
   state_machine.rs   事件路由、去重、会话跟踪（90s TTL）
-adapters/            各 Agent 的 hooks 安装器 + 共享 pet-bridge.mjs（--source 区分来源）
+adapters/            各 Agent 的 hooks 安装器；共享 pet-bridge + `lib/event-map.mjs`（--source 区分来源）
 tools/cutout.py      白底设计图 → 透明精灵（Pillow+scipy 边缘泛洪，不打穿白衣）
 data/                角色设计原图（白底，勿直接用作精灵）
-开发计划文档-v2.md    原始设计文档
+AGENTS.md            二次开发/贡献约定（扩展点、约束、发版）
+开发计划文档-v2.md    原始设计文档（文首有已实现/废弃/待做标注）
 进度记录.md           完整开发/排障/决策记录（先读这个）
 ```
 
@@ -62,7 +64,7 @@ node node_modules/esbuild/install.js   # 若 esbuild postinstall 被 allow-scrip
 npm run tauri dev                       # Vite :1420 + 桌宠
 ```
 
-检查：`npx tsc --noEmit`；`cd src-tauri && cargo check`
+检查：`npx tsc --noEmit`；`cd src-tauri && cargo check`；`npm test`（前端 vitest + 适配器映射 + Rust lib）
 
 安装 Agent hooks（幂等、先备份、`--uninstall` 可卸）：
 
@@ -76,8 +78,10 @@ node adapters/cursor/install-hooks.mjs        # Cursor
 
 ## 发版
 
+同步 bump 版本号：`package.json` + `src-tauri/tauri.conf.json` + `src-tauri/Cargo.toml`。
+
 ```bash
-# 1. 改版本号：src-tauri/tauri.conf.json + Cargo.toml
+# 1. 改版本号后提交
 git commit -am "Bump to X.Y.Z" && git push
 git tag vX.Y.Z && git push origin vX.Y.Z      # 2. CI 出 draft release（~7min）
 gh release edit vX.Y.Z --draft=false          # 3. 发布，客户端启动时自动更新

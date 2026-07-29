@@ -119,3 +119,66 @@ impl EventRouter {
         self.filter.lock().unwrap().clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ev(source: &str, session: &str, state: &str) -> AgentEvent {
+        AgentEvent {
+            source: source.into(),
+            session_id: session.into(),
+            event: "state-change".into(),
+            state: state.into(),
+            tool: None,
+            detail: None,
+            project: Some("codex-DP".into()),
+            timestamp: None,
+        }
+    }
+
+    #[test]
+    fn route_rejects_empty_source_or_state() {
+        let r = EventRouter::default();
+        assert!(r.route(ev("", "s", "thinking")).is_none());
+        let mut bad = ev("mock", "s", "");
+        bad.state.clear();
+        assert!(r.route(bad).is_none());
+    }
+
+    #[test]
+    fn route_dedups_same_state_per_session() {
+        let r = EventRouter::default();
+        assert!(r.route(ev("mock", "s1", "thinking")).is_some());
+        assert!(r.route(ev("mock", "s1", "thinking")).is_none());
+        assert!(r.route(ev("mock", "s1", "tool-use")).is_some());
+        // other session not deduped against s1
+        assert!(r.route(ev("mock", "s2", "thinking")).is_some());
+    }
+
+    #[test]
+    fn list_sessions_labels_with_project_and_short_id() {
+        let r = EventRouter::default();
+        r.route(ev("claude-code", "dbaf7eabcdef", "thinking"));
+        let list = r.list_sessions();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].key, "claude-code:dbaf7eabcdef");
+        assert_eq!(list[0].label, "codex-DP·dbaf7e");
+    }
+
+    #[test]
+    fn filter_get_set() {
+        let r = EventRouter::default();
+        assert!(r.get_filter().is_none());
+        r.set_filter(Some("mock:s1".into()));
+        assert_eq!(r.get_filter().as_deref(), Some("mock:s1"));
+        r.set_filter(None);
+        assert!(r.get_filter().is_none());
+    }
+
+    #[test]
+    fn session_label_falls_back_to_source() {
+        assert_eq!(session_label("codex:abcdef12", None), "codex·abcdef");
+        assert_eq!(session_label("codex:", Some("proj")), "proj");
+    }
+}

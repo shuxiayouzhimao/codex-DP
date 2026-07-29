@@ -61,7 +61,7 @@ export class PetState {
   private filter: string | null = null;
   /** 当前显示状态（供点击判断是否处于可消散的终态） */
   private current: AgentState = "idle";
-  private timer: number | undefined;
+  private timer: ReturnType<typeof setTimeout> | undefined;
   private opts: PetOptions = { ...DEFAULT_OPTIONS };
 
   constructor(
@@ -73,7 +73,7 @@ export class PetState {
     this.opts = { ...this.opts, ...p };
     this.clearTimer();
     const ms = this.timeoutFor(this.current);
-    if (ms > 0) this.timer = window.setTimeout(() => this.toIdle(), ms);
+    if (ms > 0) this.timer = globalThis.setTimeout(() => this.toIdle(), ms);
   }
 
   handleEvent(ev: AgentEventPayload) {
@@ -131,7 +131,7 @@ export class PetState {
     this.onChange(s, detail, this.meta());
 
     const ms = this.timeoutFor(s);
-    if (ms > 0) this.timer = window.setTimeout(() => this.toIdle(), ms);
+    if (ms > 0) this.timer = globalThis.setTimeout(() => this.toIdle(), ms);
   }
 
   /** 各状态分类的计时（毫秒）：0 = 不计时（idle）。 */
@@ -152,7 +152,7 @@ export class PetState {
   }
 
   private clearTimer() {
-    if (this.timer !== undefined) clearTimeout(this.timer);
+    if (this.timer !== undefined) globalThis.clearTimeout(this.timer);
     this.timer = undefined;
   }
 }

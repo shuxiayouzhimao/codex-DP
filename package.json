@@ -1,13 +1,18 @@
 {
   "name": "codex-pet",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "npm run test:unit && npm run test:adapter && npm run test:rust",
+    "test:unit": "vitest run",
+    "test:adapter": "node --test adapters/lib/event-map.test.mjs",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -19,6 +24,7 @@
     "@tauri-apps/cli": "^2",
     "svelte": "^5",
     "typescript": "^5.6",
-    "vite": "^6"
+    "vite": "^6",
+    "vitest": "^3"
   }
 }
