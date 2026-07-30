@@ -12,7 +12,9 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // 显式绑 127.0.0.1：host:false 在部分 Windows/Node 上只听 [::1]，
+    // WebView2 把 localhost 解析成 127.0.0.1 时会 ERR_EMPTY_RESPONSE
+    host: host || "127.0.0.1",
     hmr: host ? { protocol: "ws", host, port: 1421 } : undefined,
     watch: { ignored: ["**/src-tauri/**", "**/data/**", "**/tools/**"] },
   },

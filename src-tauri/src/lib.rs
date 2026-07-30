@@ -240,6 +240,9 @@ fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             println!("[pet-menu] open-config clicked");
             match app.get_webview_window("config") {
                 Some(w) => {
+                    // 启动时若 Vite 尚未就绪，config 可能卡在 ERR_EMPTY_RESPONSE；
+                    // 打开时 reload 一次，避免一直显示错误页。
+                    let _ = w.reload();
                     let _ = w.unminimize();
                     let r = w.show();
                     println!("[pet-menu] config show -> {:?}", r);
