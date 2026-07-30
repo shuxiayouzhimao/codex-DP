@@ -18,12 +18,14 @@ Windows 桌宠（Tauri 2 + Svelte 5）：各编程 Agent 经 hooks 推送状态�
 | 目标 | 入口 |
 |------|------|
 | 新 Agent / 事件映射 | `adapters/lib/event-map.mjs` + `adapters/<agent>/install-hooks.mjs`；桥接入口仍是 `adapters/claude-code/pet-bridge.mjs` |
-| 新皮肤 | `tools/cutout.py` → `src/assets/sprites/` → `renderer.ts` / `Config.svelte` / `lib.rs` 菜单 |
-| 新帧动画皮肤 | `tools/video_frames.py`（视频抽帧）→ `src/assets/frames/<key>/` → 同上加一条；视频规格见 `data/Character Vedio/视频需求.md` |
+| 新皮肤 | `src/assets/skins.json` + `tools/cutout.py` / `tools/video_frames.py` → `src/assets/sprites/` 或 `frames/`（renderer / Config / 托盘菜单读同一清单） |
+| 新帧动画皮肤 | `tools/video_frames.py`（视频抽帧）→ `src/assets/frames/<key>/` → 在 `skins.json` 加一条；视频规格见 `data/Character Vedio/视频需求.md` |
 | 动画参数 | `src/assets/config/animations.json` |
 | 状态→文案/优先级 | `src/lib/state-machine.ts` |
+| 气泡智能文案（规则/OpenAI） | `src/lib/copy/` + `Settings.copy*`；失败回退 detail/label |
 | 衰减/终态策略 | `src/lib/petState.ts` |
 | 设置项 | `Settings`（`src-tauri/src/lib.rs`）+ `src/config/Config.svelte`；走现有 `set_settings` + `settings-changed` |
+| Agent hooks 安装/诊断 | 配置面板「Agent 连接」；Rust `hooks_cmd` + `adapters/`（打包进 `bundle.resources`） |
 | 外部任意工具 | `POST /event`（参考 `adapters/mock/push.mjs`） |
 
 Agent 差异只进 `adapters/`，不要渗入 `petState` / 渲染核心。
@@ -44,14 +46,21 @@ npm install
 npm run tauri dev          # 开发
 npx tsc --noEmit           # 前端类型
 cd src-tauri && cargo check
-npm test                   # 单元 + 适配器映射 + Rust lib 测试
+npm test                   # 单元 + 适配器映射/桥/安装器 + Rust lib
+npm run check:versions     # 三处版本 + lock 对齐
 ```
 
 手动推事件：`node adapters/mock/push.mjs --state thinking`
 
 ## 发版
 
-同步 bump **三处**版本号：`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`。
+同步 bump 版本（推荐脚本，含 lock）：
+
+```bash
+node scripts/bump-version.mjs X.Y.Z
+```
+
+或手改三处：`package.json`、`src-tauri/tauri.conf.json`、`src-tauri/Cargo.toml`（并同步 package-lock 顶层）。
 
 ```bash
 git tag vX.Y.Z && git push origin vX.Y.Z
@@ -67,7 +76,10 @@ gh release edit vX.Y.Z --draft=false
 
 - 状态聚合 / 优先级 → `src/lib/state-machine.test.ts`
 - 衰减 / 过滤 / 终态 → `src/lib/petState.test.ts`
+- 工作态迟滞（intro/outro 跳过）→ `src/lib/working-churn.test.ts`
 - hook 映射 → `adapters/lib/event-map.test.mjs`
+- pet-bridge 零阻塞 → `adapters/claude-code/pet-bridge.test.mjs`
+- hooks 安装/卸载 → `adapters/*/install-hooks.test.mjs`
 - 去重 / 会话列表 → `src-tauri/src/state_machine.rs`（`#[cfg(test)]`）
 
 ## 已知坑（摘要）

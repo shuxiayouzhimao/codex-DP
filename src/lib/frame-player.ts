@@ -68,8 +68,8 @@ export function outroDurationMs(fps: number, outro: number): number {
   return fps > 0 ? (outro * 1000) / fps : 0;
 }
 
-/** 帧绘制高度（逻辑像素，与静态精灵 SPRITE_H 一致） */
-const FRAME_H = 150;
+/** 帧绘制高度默认（逻辑像素）；可由 setDisplayHeight 覆盖以配合缩放 */
+const DEFAULT_FRAME_H = 150;
 
 type ShadowFn = (ctx: CanvasRenderingContext2D, rx: number, y: number, ry: number) => void;
 
@@ -79,11 +79,16 @@ type ShadowFn = (ctx: CanvasRenderingContext2D, rx: number, y: number, ry: numbe
  */
 export class FramePlayer {
   private sheet: HTMLImageElement | null = null;
+  private displayH = DEFAULT_FRAME_H;
 
   constructor(
     private meta: SheetMeta,
     private sheetUrl: string,
   ) {}
+
+  setDisplayHeight(h: number) {
+    this.displayH = Math.max(1, h);
+  }
 
   load(): Promise<boolean> {
     return new Promise((resolve) => {
@@ -134,7 +139,7 @@ export class FramePlayer {
     const sx = (i % cols) * frameW;
     const sy = Math.floor(i / cols) * frameH;
 
-    const h = FRAME_H;
+    const h = this.displayH;
     const w = (h * frameW) / frameH;
     drawShadow(ctx, w * 0.36, h / 2 + 4, 8);
     ctx.drawImage(this.sheet, sx, sy, frameW, frameH, -w / 2, -h / 2, w, h);

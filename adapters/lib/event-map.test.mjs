@@ -5,7 +5,7 @@ import { MAP, mapHook, projectOf, sessionOf, toolOf } from "./event-map.mjs";
 describe("event-map MAP snapshot", () => {
   it("covers Claude Code / Codex PascalCase events", () => {
     const expected = [
-      "UserPromptSubmit", "PreCompact", "PreToolUse", "PostToolUse", "PostToolBatch",
+      "UserPromptSubmit", "PreCompact", "PostCompact", "PreToolUse", "PostToolUse", "PostToolBatch",
       "PostToolUseFailure", "PermissionRequest", "Elicitation", "Notification",
       "Stop", "StopFailure", "SubagentStart", "SubagentStop", "SessionStart", "SessionEnd",
     ];
@@ -15,9 +15,18 @@ describe("event-map MAP snapshot", () => {
   it("covers Cursor camelCase events", () => {
     const expected = [
       "beforeSubmitPrompt", "preCompact", "preToolUse", "postToolUse", "postToolUseFailure",
-      "afterAgentThought", "subagentStart", "subagentStop", "sessionStart", "sessionEnd", "stop",
+      "afterAgentThought", "afterAgentResponse", "afterFileEdit",
+      "beforeShellExecution", "beforeMCPExecution",
+      "subagentStart", "subagentStop", "sessionStart", "sessionEnd", "stop",
     ];
     for (const name of expected) assert.equal(typeof MAP[name], "function", name);
+  });
+
+  it("does not map any hook to streaming (no reliable token hook)", () => {
+    for (const [name, fn] of Object.entries(MAP)) {
+      const out = fn({});
+      assert.notEqual(out.state, "streaming", `${name} must not fake streaming`);
+    }
   });
 });
 
@@ -32,6 +41,9 @@ describe("mapHook core mappings", () => {
     ["StopFailure", {}, "error-interrupted"],
     ["preToolUse", { tool: "edit" }, "tool-use"],
     ["beforeSubmitPrompt", {}, "thinking"],
+    ["afterAgentResponse", {}, "thinking"],
+    ["beforeShellExecution", {}, "permission-prompt"],
+    ["PostCompact", {}, "thinking"],
     ["stop", {}, "completed"],
   ];
 

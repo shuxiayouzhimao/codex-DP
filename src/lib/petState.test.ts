@@ -43,7 +43,7 @@ describe("PetState", () => {
   it("filters to a single session", () => {
     pet.handleEvent(ev({ sessionId: "a", state: "thinking" }));
     pet.setFilter("mock:a");
-    expect(last.state).toBe("idle"); // setFilter clears view
+    expect(last.state).toBe("thinking"); // 保留目标会话状态
     expect(last.meta.filtered).toBe(true);
 
     pet.handleEvent(ev({ sessionId: "a", state: "tool-use" }));
@@ -51,6 +51,21 @@ describe("PetState", () => {
 
     pet.handleEvent(ev({ sessionId: "b", state: "error-interrupted" }));
     expect(last.state).toBe("tool-use"); // non-filter session ignored for display
+  });
+
+  it("toIdle in filter mode only clears the locked session", () => {
+    pet.handleEvent(ev({ sessionId: "a", state: "thinking" }));
+    pet.handleEvent(ev({ sessionId: "b", state: "tool-use" }));
+    pet.setFilter("mock:a");
+    expect(last.state).toBe("thinking");
+    pet.setOptions({ workDecayMs: 1000 });
+    // setOptions 重排计时
+    vi.advanceTimersByTime(1000);
+    expect(last.state).toBe("idle");
+    expect(last.meta.filtered).toBe(true);
+    // 解除过滤后 b 仍在（若未过期）—— setFilter null 保留 sessions；a 已删
+    pet.setFilter(null);
+    expect(last.meta.filtered).toBe(false);
   });
 
   it("work state decays after workDecayMs", () => {

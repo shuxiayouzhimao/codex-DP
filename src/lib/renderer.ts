@@ -1,52 +1,23 @@
 import type { AnimDef, AnimName } from "./types";
 import { FramePlayer, type SheetMeta } from "./frame-player";
+import { isWorkingChurn } from "./working-churn";
+import { buildFrameSkins, buildSpriteUrls } from "./skins";
 import animationsJson from "../assets/config/animations.json";
-import spriteGreenUrl from "../assets/sprites/sprite-green.png";
-import spriteRedUrl from "../assets/sprites/sprite-red.png";
-import greenAnimIdleUrl from "../assets/frames/green-anim/idle.png";
-import greenAnimIdleMeta from "../assets/frames/green-anim/idle.json";
-import greenAnimThinkingUrl from "../assets/frames/green-anim/thinking.png";
-import greenAnimThinkingMeta from "../assets/frames/green-anim/thinking.json";
-import greenAnimToolUseUrl from "../assets/frames/green-anim/tool-use.png";
-import greenAnimToolUseMeta from "../assets/frames/green-anim/tool-use.json";
-import greenAnimErrorUrl from "../assets/frames/green-anim/error.png";
-import greenAnimErrorMeta from "../assets/frames/green-anim/error.json";
-import greenAnimSuccessUrl from "../assets/frames/green-anim/success.png";
-import greenAnimSuccessMeta from "../assets/frames/green-anim/success.json";
-import greenAnimStreamingUrl from "../assets/frames/green-anim/streaming.png";
-import greenAnimStreamingMeta from "../assets/frames/green-anim/streaming.json";
-import greenAnimWaitingUrl from "../assets/frames/green-anim/waiting.png";
-import greenAnimWaitingMeta from "../assets/frames/green-anim/waiting.json";
 
 const ANIMATIONS = animationsJson as unknown as Record<AnimName, AnimDef>;
 
-/** 可用皮肤（Vite 打包为静态资源） */
-const SKIN_URLS: Record<string, string> = {
-  green: spriteGreenUrl,
-  red: spriteRedUrl,
-};
+/** 可用皮肤（来自 skins.json + import.meta.glob） */
+const SKIN_URLS: Record<string, string> = buildSpriteUrls();
 
 /** 帧动画皮肤：皮肤 → 动画名 → 精灵表（tools/video_frames.py 产出）。
  *  当前动画有专属序列时直接播放（序列自带动作，跳过整体变换）；
  *  没有则回退 idle 序列 + animations.json 整体变换区分状态。 */
-const FRAME_SKINS: Record<string, Partial<Record<AnimName, { sheet: string; meta: SheetMeta }>>> = {
-  "green-anim": {
-    idle: { sheet: greenAnimIdleUrl, meta: greenAnimIdleMeta as SheetMeta },
-    thinking: { sheet: greenAnimThinkingUrl, meta: greenAnimThinkingMeta as SheetMeta },
-    "tool-use": { sheet: greenAnimToolUseUrl, meta: greenAnimToolUseMeta as SheetMeta },
-    error: { sheet: greenAnimErrorUrl, meta: greenAnimErrorMeta as SheetMeta },
-    success: { sheet: greenAnimSuccessUrl, meta: greenAnimSuccessMeta as SheetMeta },
-    streaming: { sheet: greenAnimStreamingUrl, meta: greenAnimStreamingMeta as SheetMeta },
-    waiting: { sheet: greenAnimWaitingUrl, meta: greenAnimWaitingMeta as SheetMeta },
-  },
-};
+const FRAME_SKINS: Record<string, Partial<Record<AnimName, { sheet: string; meta: SheetMeta }>>> =
+  buildFrameSkins();
 
-/** 精灵绘制高度（逻辑像素，200px 画布内） */
-const SPRITE_H = 150;
-
-/** 工作态动画：真实会话中 thinking ↔ tool-use 高频交替，
- *  它们之间切换不播入场/出场（否则齿轮反复出现/消退，像特效闪烁） */
-const WORKING_ANIMS: ReadonlySet<AnimName> = new Set(["thinking", "tool-use", "streaming"]);
+/** 基准画布边长；精灵高 = size * 0.75 */
+const BASE_SIZE = 200;
+const SPRITE_RATIO = 0.75;
 
 /**
  * Canvas 变换式动画引擎。
@@ -71,19 +42,43 @@ export class PetRenderer {
   /** once 动画播完回到 next 时回调（便于 UI 同步状态文案） */
   onAnimEnd: ((next: AnimName) => void) | null = null;
 
-  constructor(canvas: HTMLCanvasElement, size = 200) {
+  constructor(canvas: HTMLCanvasElement, size = BASE_SIZE) {
     this.canvas = canvas;
     this.size = size;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas 2D context unavailable");
     this.ctx = ctx;
-    const dpr = window.devicePixelRatio || 1;
-    canvas.width = size * dpr;
-    canvas.height = size * dpr;
-    canvas.style.width = `${size}px`;
-    canvas.style.height = `${size}px`;
-    ctx.scale(dpr, dpr);
+    this.applyCanvasSize(size);
     ctx.imageSmoothingQuality = "high";
+  }
+
+  private spriteH(): number {
+    return this.size * SPRITE_RATIO;
+  }
+
+  private applyCanvasSize(size: number) {
+    const dpr = window.devicePixelRatio || 1;
+    this.size = size;
+    this.canvas.width = size * dpr;
+    this.canvas.height = size * dpr;
+    this.canvas.style.width = `${size}px`;
+    this.canvas.style.height = `${size}px`;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.ctx.imageSmoothingQuality = "high";
+    const h = this.spriteH();
+    for (const players of this.framePlayers.values()) {
+      for (const p of Object.values(players)) p?.setDisplayHeight(h);
+    }
+  }
+
+  /** 逻辑边长变化（缩放档位）；同步 canvas 与帧高 */
+  setSize(size: number) {
+    if (size === this.size) return;
+    this.applyCanvasSize(size);
+  }
+
+  getSize(): number {
+    return this.size;
   }
 
   /** 预加载全部皮肤；失败的皮膚缺失（绘制时回退 blob）。 */
@@ -106,7 +101,10 @@ export class PetRenderer {
         if (!def) return Promise.resolve();
         const player = new FramePlayer(def.meta, def.sheet);
         return player.load().then((ok) => {
-          if (ok) players[anim as AnimName] = player;
+          if (ok) {
+            player.setDisplayHeight(this.spriteH());
+            players[anim as AnimName] = player;
+          }
         });
       });
       // 至少有 idle 序列才认为该帧皮肤可用（回退路径依赖它）
@@ -141,7 +139,7 @@ export class PetRenderer {
     // 出场段（如 tool-use 齿轮）仅在工作真正结束时播（切到非工作态）；
     // 工作态之间的高频交替跳过，避免特效反复消退
     const cur = players?.[prev];
-    const workingChurn = WORKING_ANIMS.has(prev) && WORKING_ANIMS.has(anim);
+    const workingChurn = isWorkingChurn(prev, anim);
     if (cur?.hasOutro() && !workingChurn) {
       this.outro = { player: cur, start: performance.now() };
       this.pendingAnim = anim;
@@ -243,7 +241,7 @@ export class PetRenderer {
     }
     const img = this.skins.get(this.skin);
     if (img) {
-      const h = SPRITE_H;
+      const h = this.spriteH();
       const w = (h * img.naturalWidth) / img.naturalHeight;
       this.drawShadow(ctx, w * 0.36, h / 2 + 4, 8);
       ctx.drawImage(img, -w / 2, -h / 2, w, h);

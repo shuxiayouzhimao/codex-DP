@@ -23,13 +23,19 @@ const CONFIG = path.join(DIR, "config.toml");
 const BACKUP = HOOKS + ".codex-pet.bak";
 const BRIDGE = path.join(__dirname, "..", "claude-code", "pet-bridge.mjs").replace(/\\/g, "/");
 
-// 本机 Codex 实际触发的事件（与 Vibe Pet 曾注册的一致，已证实有效）
+// Codex 官方 hooks（developers.openai.com/codex/hooks）；与 Claude 同构 PascalCase。
+// PostToolUseFailure / StopFailure / Elicitation 等官方未列，MAP 仍保留以防真机出现，但不默认安装。
 const EVENTS = [
   "SessionStart",
+  "SessionEnd",
   "UserPromptSubmit",
   "PreToolUse",
   "PermissionRequest",
   "PostToolUse",
+  "PreCompact",
+  "PostCompact",
+  "SubagentStart",
+  "SubagentStop",
   "Stop",
 ];
 

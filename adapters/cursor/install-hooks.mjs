@@ -21,7 +21,8 @@ const HOOKS = path.join(DIR, "hooks.json");
 const BACKUP = HOOKS + ".codex-pet.bak";
 const BRIDGE = path.join(__dirname, "..", "claude-code", "pet-bridge.mjs").replace(/\\/g, "/");
 
-// 本机 Cursor 实际触发的事件（与 Vibe Pet 曾注册的一致，已证实有效）
+// Cursor 官方 hooks（cursor.com/docs/agent/hooks）。无统一 PermissionRequest；
+// streaming 无逐 token hook——afterAgentResponse 是整条回复完成，勿当输出中。
 const EVENTS = [
   "sessionStart",
   "sessionEnd",
@@ -33,6 +34,10 @@ const EVENTS = [
   "subagentStop",
   "preCompact",
   "afterAgentThought",
+  "afterAgentResponse",
+  "afterFileEdit",
+  "beforeShellExecution",
+  "beforeMCPExecution",
   "stop",
 ];
 

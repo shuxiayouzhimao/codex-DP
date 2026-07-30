@@ -1,6 +1,6 @@
 {
   "name": "codex-pet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "license": "MIT",
@@ -11,8 +11,10 @@
     "tauri": "tauri",
     "test": "npm run test:unit && npm run test:adapter && npm run test:rust",
     "test:unit": "vitest run",
-    "test:adapter": "node --test adapters/lib/event-map.test.mjs",
-    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib"
+    "test:adapter": "node --test adapters/lib/event-map.test.mjs adapters/claude-code/pet-bridge.test.mjs adapters/claude-code/install-hooks.test.mjs adapters/codex/install-hooks.test.mjs adapters/cursor/install-hooks.test.mjs",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --lib",
+    "check:versions": "node scripts/check-versions.mjs",
+    "bump:version": "node scripts/bump-version.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

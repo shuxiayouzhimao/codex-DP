@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Codex Pet",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.codex.pet",
   "build": {
     "frontendDist": "../dist",
@@ -15,7 +15,7 @@
         "label": "main",
         "title": "Codex Pet",
         "width": 200,
-        "height": 200,
+        "height": 268,
         "decorations": false,
         "transparent": true,
         "shadow": false,
@@ -29,11 +29,11 @@
         "title": "Codex Pet 设置",
         "url": "/config.html",
         "width": 440,
-        "height": 560,
+        "height": 820,
         "decorations": true,
         "transparent": false,
         "alwaysOnTop": false,
-        "resizable": false,
+        "resizable": true,
         "skipTaskbar": false,
         "visible": false
       }
@@ -44,11 +44,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": [
+      "nsis"
+    ],
     "createUpdaterArtifacts": true,
+    "resources": {
+      "../adapters": "adapters"
+    },
     "windows": {
       "nsis": {
-        "languages": ["SimpChinese"],
+        "languages": [
+          "SimpChinese"
+        ],
         "displayLanguageSelector": false,
         "installMode": "currentUser"
       }

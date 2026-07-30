@@ -22,6 +22,15 @@ jobs:
 
       - run: npm ci
 
+      - name: Version sync
+        run: node scripts/check-versions.mjs
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Test
+        run: npm test
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -32,12 +32,17 @@ struct SessionInfo {
     last_seen: Instant,
 }
 
-/// 提供给托盘菜单的会话条目
+/// 提供给托盘菜单 / 配置面板的会话条目
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionEntry {
     /// 过滤键："source:sessionId"
     pub key: String,
-    /// 展示文案："codex-DP·dbaf7e"（无 project 时退化为 "claude-code·dbaf7e"）
+    /// 展示文案："codex-DP·dbaf7e"
     pub label: String,
+    /// 该会话最近状态（供列表状态点）
+    pub state: String,
+    pub project: Option<String>,
 }
 
 /// 事件路由：按 source+sessionId 去重（状态未变则不转发），
@@ -98,6 +103,7 @@ impl EventRouter {
         let now = Instant::now();
         sessions.retain(|_, v| now.duration_since(v.last_seen) <= SESSION_TTL);
 
+        let last = self.last.lock().unwrap();
         let mut v: Vec<(String, Option<String>, Instant)> = sessions
             .iter()
             .map(|(k, info)| (k.clone(), info.project.clone(), info.last_seen))
@@ -107,7 +113,16 @@ impl EventRouter {
         v.into_iter()
             .map(|(key, project, _)| {
                 let label = session_label(&key, project.as_deref());
-                SessionEntry { key, label }
+                let state = last
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| "idle".into());
+                SessionEntry {
+                    key,
+                    label,
+                    state,
+                    project,
+                }
             })
             .collect()
     }

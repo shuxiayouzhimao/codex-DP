@@ -1,0 +1,29 @@
+[
+  {
+    "key": "green",
+    "name": "绿毛衣",
+    "kind": "sprite",
+    "sprite": "sprite-green.png"
+  },
+  {
+    "key": "red",
+    "name": "红装",
+    "kind": "sprite",
+    "sprite": "sprite-red.png"
+  },
+  {
+    "key": "green-anim",
+    "name": "绿毛衣·动画",
+    "kind": "frames",
+    "frames": "green-anim",
+    "anims": [
+      "idle",
+      "thinking",
+      "tool-use",
+      "error",
+      "success",
+      "streaming",
+      "waiting"
+    ]
+  }
+]

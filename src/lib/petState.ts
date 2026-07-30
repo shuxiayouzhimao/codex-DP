@@ -76,22 +76,38 @@ export class PetState {
     if (ms > 0) this.timer = globalThis.setTimeout(() => this.toIdle(), ms);
   }
 
-  handleEvent(ev: AgentEventPayload) {
+  /**
+   * 是否会采纳该事件参与显示（过滤检查）。
+   * 顺带记录 project，便于标签；与 handleEvent 的过滤条件一致。
+   */
+  willHandle(ev: AgentEventPayload): boolean {
     const key = `${ev.source}:${ev.sessionId ?? ""}`;
     if (ev.project) this.projects.set(key, ev.project);
-    // 单会话过滤：非目标会话的事件不参与显示（但项目名已记录，供列表/标签）
-    if (this.filter !== null && key !== this.filter) return;
+    return this.filter === null || key === this.filter;
+  }
+
+  handleEvent(ev: AgentEventPayload): boolean {
+    if (!this.willHandle(ev)) return false;
+    const key = `${ev.source}:${ev.sessionId ?? ""}`;
     this.lastKey = key;
     this.sessions.set(key, { state: ev.state, ts: Date.now() });
     this.recompute(ev.detail ?? "");
+    return true;
   }
 
   /** 锁定监听某个会话（key），或传 null 恢复监听全部。来自托盘"监听会话"菜单。 */
   setFilter(key: string | null) {
     this.filter = key;
     this.lastKey = key ?? "";
-    // 切换过滤时清空当前会话视图，避免残留显示之前会话的状态
+    if (key === null) {
+      // 恢复全部：保留已有会话视图，只重算聚合
+      this.recompute("");
+      return;
+    }
+    // 锁定单会话：尽量保留该会话最近状态，避免闪 idle
+    const kept = this.sessions.get(key);
     this.sessions.clear();
+    if (kept) this.sessions.set(key, { ...kept, ts: Date.now() });
     this.recompute("");
   }
 
@@ -146,7 +162,12 @@ export class PetState {
 
   private toIdle() {
     this.clearTimer();
-    this.sessions.clear();
+    // 过滤模式：只清当前锁定会话，避免「全家回闲置」
+    if (this.filter !== null) {
+      this.sessions.delete(this.filter);
+    } else {
+      this.sessions.clear();
+    }
     this.current = "idle";
     this.onChange("idle", "", this.meta());
   }

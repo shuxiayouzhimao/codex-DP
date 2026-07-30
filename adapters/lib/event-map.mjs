@@ -48,6 +48,8 @@ export const MAP = {
   SubagentStop: () => ({ state: "completed", detail: "子任务完成" }),
   SessionStart: () => ({ state: "idle", detail: "会话开始" }),
   SessionEnd: () => ({ state: "idle", detail: "会话结束" }),
+  // Codex 官方另有 PostCompact（Claude 无对等项时仍可安全映射）
+  PostCompact: () => ({ state: "thinking", detail: "压缩完成" }),
   // Cursor（camelCase）
   beforeSubmitPrompt: () => ({ state: "thinking", detail: "思考中" }),
   preCompact: () => ({ state: "thinking", detail: "压缩上下文" }),
@@ -55,6 +57,20 @@ export const MAP = {
   postToolUse: (p) => ({ state: "thinking", tool: toolOf(p), detail: toolOf(p) ? `处理 ${toolOf(p)} 结果` : "处理结果" }),
   postToolUseFailure: (p) => ({ state: "error-interrupted", tool: toolOf(p), detail: toolOf(p) ? `${toolOf(p)} 失败` : "工具失败" }),
   afterAgentThought: () => ({ state: "thinking", detail: "思考中" }),
+  // 整条 assistant 消息完成后触发——不是 token 流，勿映射 streaming
+  afterAgentResponse: () => ({ state: "thinking", detail: "整理回复" }),
+  afterFileEdit: (p) => ({ state: "tool-use", tool: toolOf(p) || "Edit", detail: "改完文件" }),
+  // 仅观察：桌宠零阻塞，不能代用户点批准；覆盖面也只限 shell/MCP
+  beforeShellExecution: (p) => ({
+    state: "permission-prompt",
+    tool: toolOf(p) || "Shell",
+    detail: "等待确认命令",
+  }),
+  beforeMCPExecution: (p) => ({
+    state: "permission-prompt",
+    tool: toolOf(p) || "MCP",
+    detail: "等待确认 MCP",
+  }),
   subagentStart: () => ({ state: "tool-use", detail: "子任务执行中" }),
   subagentStop: () => ({ state: "completed", detail: "子任务完成" }),
   sessionStart: () => ({ state: "idle", detail: "会话开始" }),

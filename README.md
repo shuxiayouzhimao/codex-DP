@@ -12,11 +12,12 @@ Windows 桌面宠物：实时反映编程 Agent（Claude Code / Codex CLI / Curs
 - 🟢 **官方 Q 版精灵**：绿毛衣 / 红装两款皮肤，右键即换（`tools/cutout.py` 离线抠图管线，可扩展新皮肤）
 - 🎞️ **序列帧动画皮肤「绿毛衣·动画」**：AI 生成视频 → 抽帧精灵表（`tools/video_frames.py`），**7 状态专属序列**——三段式（入场→循环→出场，如齿轮/道具随状态生灭）、once（成功欢呼定格）、pingpong（输出中）；动作连贯性由视频保证 | MIT 无授权风险
 - ⚡ **实时状态联动**：8 种 Agent 状态 → 7 种动画（呼吸/摇摆/倾斜/弹跳/抖动…）+ 气泡文案
-- 🤖 **多 Agent 通用**：Claude Code（主）、Codex CLI、Cursor，一份统一事件协议
+- 🤖 **多 Agent 通用**：Claude Code（主）、Codex CLI、Cursor，一份统一事件协议。Cursor **无统一审批粒度**（仅 shell/MCP 前置观察）；三源均无可靠逐字 streaming hook，该动画仅素材+规则，不装假状态
 - 🎯 **会话选择**：托盘/右键 →「监听会话」锁定某个对话（`项目名·会话短id`），默认聚合全部
 - 💾 **状态持久化**：工作态 5min 衰减防掉线；等待审批不衰减；完成/出错保持到点击确认（可配）
-- 🖱️ **交互**：整窗拖拽（位置记忆）、点击消散终态、右键原生菜单（换肤/监听/自启/设置）
-- ⚙️ **配置面板**：皮肤、终态提醒方式、衰减档位、开机自启，实时热更
+- 🖱️ **交互**：整窗拖拽（位置记忆）、点击消散终态、右键原生菜单（换肤/监听/重置位置/自启/设置）、三档缩放
+- ⚙️ **配置面板**：皮肤与大小、Agent hooks 安装/诊断、会话轻列表、终态提醒（含任务栏闪烁）、衰减、智能文案、开机自启
+- 💬 **智能文案（可选）**：规则模板或 OpenAI 兼容 API，工作态人格短句 + 终态一句话摘要；默认关，失败回退原 tip
 - 🔄 **自动更新**：GitHub Releases + 签名校验，启动时静默更新
 - 🚀 **开机自启**：默认开启，可关
 
@@ -44,8 +45,10 @@ src/                 前端（App.svelte 宠物窗 + config/ 配置窗）
   lib/renderer.ts    Canvas 变换式动画引擎（帧序列 → 静态精灵 → blob 三级回退）
   lib/frame-player.ts 序列帧播放器（loop/pingpong/once + 三段式入场/出场）
   lib/petState.ts    状态持久化模型（分类计时 + 会话聚合/过滤）
+  lib/copy/          智能文案（EventRing + 规则/OpenAI Provider + 限流队列）
   lib/updater.ts     静默自动更新
   assets/sprites/    官方抠图精灵（绿/红）
+  assets/skins.json  皮肤注册表（key/name/kind；新皮肤只改清单+资源）
   assets/frames/     帧动画皮肤精灵表（tools/video_frames.py 产出，含清单 JSON）
 src-tauri/src/
   lib.rs             窗口/托盘/菜单/设置/settings.json/自启/命令
