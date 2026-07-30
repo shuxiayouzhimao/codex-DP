@@ -41,6 +41,14 @@ describe("PetState", () => {
     expect(last.meta.count).toBe(2);
   });
 
+  it("最近会话的 completed 不被其它会话 streaming 盖住", () => {
+    pet.handleEvent(ev({ sessionId: "old", state: "streaming", detail: "吐字" }));
+    pet.handleEvent(ev({ sessionId: "new", state: "completed", detail: "完成" }));
+    expect(last.state).toBe("completed");
+    expect(last.detail).toBe("完成");
+    expect(last.meta.count).toBe(2);
+  });
+
   it("filters to a single session", () => {
     pet.handleEvent(ev({ sessionId: "a", state: "thinking" }));
     pet.setFilter("mock:a");
@@ -107,12 +115,16 @@ describe("PetState", () => {
     expect(last.state).toBe("tool-use");
   });
 
-  it("terminal is not overwritten by idle thinking noise", () => {
+  it("terminal keeps success against wrap-up noise, but yields to new-turn thinking", () => {
     pet.setOptions({ clickToDismiss: true, terminalHoldMs: 60_000 });
     pet.handleEvent(ev({ state: "completed", detail: "完成" }));
-    pet.handleEvent(ev({ state: "thinking", detail: "思考中" }));
+    pet.handleEvent(ev({ state: "thinking", detail: "整理回复" }));
     expect(last.state).toBe("completed");
     expect(last.detail).toBe("完成");
+
+    // 新一轮对话：UserPromptSubmit → 思考中，无需先点消散
+    pet.handleEvent(ev({ state: "thinking", detail: "思考中" }));
+    expect(last.state).toBe("thinking");
   });
 
   it("terminal holds until dismiss when clickToDismiss", () => {

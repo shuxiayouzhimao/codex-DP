@@ -196,6 +196,12 @@
           Node：{hooks.nodeOk ? hooks.nodeVersion : "未找到"}
           · adapters：{hooks.adaptersOk ? "就绪" : "缺失"}
         </p>
+        {#if !hooks.nodeOk}
+          <p class="warn-hint">未检测到 Node.js，无法安装 hooks。请先安装 Node 并确保 `node` 在 PATH 中。</p>
+        {/if}
+        {#if !hooks.adaptersOk}
+          <p class="warn-hint">找不到 adapters（安装版应随包带入）。请重装桌宠，或在仓库根目录跑开发版。</p>
+        {/if}
         {#each hooks.sources as s}
           <div class="agent-block">
             <div class="agent-row">

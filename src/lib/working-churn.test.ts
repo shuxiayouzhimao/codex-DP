@@ -6,6 +6,7 @@ describe("isWorkingChurn", () => {
     expect(isWorkingChurn("thinking", "tool-use")).toBe(true);
     expect(isWorkingChurn("tool-use", "streaming")).toBe(true);
     expect(isWorkingChurn("streaming", "thinking")).toBe(true);
+    expect(isWorkingChurn("thinking", "reading")).toBe(true);
   });
 
   it("涉及非工作态为 false", () => {
@@ -15,15 +16,21 @@ describe("isWorkingChurn", () => {
     expect(isWorkingChurn("waiting", "tool-use")).toBe(false);
   });
 
-  it("WORKING_ANIMS 仅含三态", () => {
-    expect([...WORKING_ANIMS].sort()).toEqual(["streaming", "thinking", "tool-use"]);
+  it("WORKING_ANIMS 含 reading", () => {
+    expect([...WORKING_ANIMS].sort()).toEqual([
+      "reading",
+      "streaming",
+      "thinking",
+      "tool-use",
+    ]);
   });
 });
 
 describe("animTransitionFlags", () => {
-  it("工作态 churn：有 outro 也不播，并 skipIntro", () => {
+  it("工作态 churn：推迟到边界，有 outro 也不播，并 skipIntro", () => {
     expect(animTransitionFlags("thinking", "tool-use", true)).toEqual({
       workingChurn: true,
+      deferToBoundary: true,
       playOutro: false,
       skipIntro: true,
     });
@@ -32,6 +39,7 @@ describe("animTransitionFlags", () => {
   it("离开工作态：有 outro 则播", () => {
     expect(animTransitionFlags("tool-use", "idle", true)).toEqual({
       workingChurn: false,
+      deferToBoundary: false,
       playOutro: true,
       skipIntro: false,
     });

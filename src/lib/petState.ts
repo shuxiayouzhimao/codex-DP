@@ -31,10 +31,10 @@ const DEFAULT_OPTIONS: PetOptions = {
 };
 
 /**
- * 等待/终态期间可忽略的「空转思考」噪声（Cursor afterAgentThought 等）。
+ * 等待用户期间可忽略的「空转思考」噪声（Cursor afterAgentThought 等）。
  * 有 tool，或 detail 像「命令执行中 / 处理结果」时放行，避免审批动画卡死。
  */
-function isIdleThinkingNoise(ev: AgentEventPayload): boolean {
+function isWaitHoldNoise(ev: AgentEventPayload): boolean {
   if (ev.state !== "thinking" && ev.state !== "streaming") return false;
   if (ev.tool) return false;
   const d = (ev.detail ?? "").trim();
@@ -47,6 +47,17 @@ function isIdleThinkingNoise(ev: AgentEventPayload): boolean {
   );
 }
 
+/**
+ * 终态后仍可能涌来的收尾噪声。
+ * 注意：不再把「思考中」当噪声——新一轮 UserPromptSubmit 常用它，否则不点完成就卡死下一对话。
+ */
+function isTerminalHoldNoise(ev: AgentEventPayload): boolean {
+  if (ev.state !== "thinking" && ev.state !== "streaming") return false;
+  if (ev.tool) return false;
+  const d = (ev.detail ?? "").trim();
+  return d === "" || d === "整理回复" || d === "压缩上下文" || d === "压缩完成";
+}
+
 export interface SessionMeta {
   /** 当前活跃会话数（TTL 内、且通过过滤） */
   count: number;
@@ -56,6 +67,8 @@ export interface SessionMeta {
   lastKey: string;
   /** lastKey 对应会话的项目名（若有），让"哪个对话"更可读 */
   lastProject?: string;
+  /** 最近事件的工具名（读文件类可切 reading 动画） */
+  lastTool?: string;
   /** 是否处于"单会话过滤"模式（true=只看某一个对话） */
   filtered: boolean;
 }
@@ -67,10 +80,11 @@ export interface SessionMeta {
  * - 等待态 permission-prompt/ask-user：不衰减，直到用户操作引发新事件（30min 兜底）。
  * - 终态 completed/error-interrupted：保持到用户点击桌宠确认（dismissTerminal）或新事件（30min 兜底）。
  * - 等待/终态期间忽略空转 thinking，但放行 tool-use / 带工具的后续态。
+ * - 终态不挡「思考中」（新一轮对话常以此开头）；仍挡「整理回复」等收尾噪声。
  * 另：多会话按优先级聚合、会话 90s 过期、setFilter 可锁定单会话。
  */
 export class PetState {
-  private sessions = new Map<string, { state: AgentState; ts: number }>();
+  private sessions = new Map<string, { state: AgentState; ts: number; tool?: string }>();
   /** 会话 key → 项目名（用于标签展示，不随 toIdle 清除，便于过滤时空闲也能认出目标） */
   private projects = new Map<string, string>();
   private lastKey = "";
@@ -111,16 +125,15 @@ export class PetState {
     this.lastKey = key;
 
     const prev = this.sessions.get(key);
-    // 等待审批：只挡住空转 thinking（如 afterAgentThought），
-    // 放行「命令已执行 / 处理结果」等真正离开门闩的事件
-    if (prev && WAIT_USER.has(prev.state) && isIdleThinkingNoise(ev)) {
-      this.sessions.set(key, { state: prev.state, ts: Date.now() });
+    // 等待审批：挡住空转 thinking（含「思考中」），放行有意义的离开门闩事件
+    if (prev && WAIT_USER.has(prev.state) && isWaitHoldNoise(ev)) {
+      this.sessions.set(key, { state: prev.state, ts: Date.now(), tool: prev.tool });
       this.recompute(this.lastWaitDetail || "");
       return true;
     }
-    // 终态：同样只挡空转思考，避免盖住完成气泡
-    if (prev && TERMINAL.has(prev.state) && isIdleThinkingNoise(ev)) {
-      this.sessions.set(key, { state: prev.state, ts: Date.now() });
+    // 终态：只挡收尾噪声；「思考中」放行以便下一轮对话无需先点消散
+    if (prev && TERMINAL.has(prev.state) && isTerminalHoldNoise(ev)) {
+      this.sessions.set(key, { state: prev.state, ts: Date.now(), tool: prev.tool });
       this.recompute(this.lastWaitDetail || "");
       return true;
     }
@@ -130,7 +143,11 @@ export class PetState {
     } else if (ev.state !== "thinking" && ev.state !== "streaming") {
       this.lastWaitDetail = "";
     }
-    this.sessions.set(key, { state: ev.state, ts: Date.now() });
+    this.sessions.set(key, {
+      state: ev.state,
+      ts: Date.now(),
+      tool: ev.tool ?? prev?.tool,
+    });
     this.recompute(ev.detail ?? "");
     return true;
   }
@@ -166,17 +183,30 @@ export class PetState {
   private meta(): SessionMeta {
     const sources = new Set<string>();
     for (const k of this.sessions.keys()) sources.add(k.split(":")[0]);
+    const last = this.sessions.get(this.lastKey);
     return {
       count: this.sessions.size,
       sources: [...sources],
       lastKey: this.lastKey,
       lastProject: this.projects.get(this.lastKey),
+      lastTool: last?.tool,
       filtered: this.filter !== null,
     };
   }
 
   private recompute(detail: string) {
     this.prune();
+    const last = this.sessions.get(this.lastKey);
+    // 单宠：优先展示「最近有事件的会话」。否则全部模式下其它会话的 thinking/streaming
+    //（优先级 2）会盖住刚完成的 completed（优先级 1），桌宠一直卡在吐字/思考。
+    if (last) {
+      const holdDetail =
+        TERMINAL.has(last.state) || WAIT_USER.has(last.state)
+          ? detail || this.lastWaitDetail || ""
+          : detail;
+      this.setDisplay(last.state, holdDetail);
+      return;
+    }
     const states = [...this.sessions.values()].map((v) => v.state);
     this.setDisplay(aggregate(states), detail);
   }

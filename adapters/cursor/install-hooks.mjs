@@ -22,7 +22,7 @@ const BACKUP = HOOKS + ".codex-pet.bak";
 const BRIDGE = path.join(__dirname, "..", "claude-code", "pet-bridge.mjs").replace(/\\/g, "/");
 
 // Cursor 官方 hooks（cursor.com/docs/agent/hooks）。无统一 PermissionRequest；
-// streaming 无逐 token hook——afterAgentResponse 是整条回复完成，勿当输出中。
+// streaming 无逐 token hook——afterAgentResponse 映射为 completed（整条回复结束）。
 const EVENTS = [
   "sessionStart",
   "sessionEnd",

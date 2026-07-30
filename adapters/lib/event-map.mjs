@@ -73,8 +73,8 @@ export const MAP = {
   postToolUse: (p) => ({ state: "thinking", tool: toolOf(p), detail: toolOf(p) ? `处理 ${toolOf(p)} 结果` : "处理结果" }),
   postToolUseFailure: (p) => ({ state: "error-interrupted", tool: toolOf(p), detail: toolOf(p) ? `${toolOf(p)} 失败` : "工具失败" }),
   afterAgentThought: () => ({ state: "thinking", detail: "思考中" }),
-  // 整条 assistant 消息完成后触发——不是 token 流，勿映射 streaming
-  afterAgentResponse: () => ({ state: "thinking", detail: "整理回复" }),
+  // 整条 assistant 消息完成——不是 token 流；当作完成（stop 有时不来，否则会卡在工作态）
+  afterAgentResponse: () => ({ state: "completed", detail: "完成" }),
   afterFileEdit: (p) => ({ state: "tool-use", tool: toolOf(p) || "Edit", detail: "改完文件" }),
   // 点 Run / 审批门闩：桌宠只能观察，不能代点批准
   beforeShellExecution: (p) => {

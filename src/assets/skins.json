@@ -23,6 +23,7 @@
       "error",
       "success",
       "streaming",
+      "reading",
       "waiting"
     ]
   }

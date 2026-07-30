@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregate, metaOf, STATE_MAP } from "./state-machine";
+import { aggregate, animFor, metaOf, STATE_MAP } from "./state-machine";
 import type { AgentState } from "./types";
 
 describe("aggregate", () => {
@@ -16,6 +16,19 @@ describe("aggregate", () => {
   it("ties keep first highest among equals", () => {
     // tool-use=3；permission/ask/error=4 → 等待审批压过执行中
     expect(aggregate(["tool-use", "permission-prompt"])).toBe("permission-prompt");
+  });
+});
+
+describe("animFor", () => {
+  it("读文件类 tool-use → reading", () => {
+    expect(animFor("tool-use", "Read")).toBe("reading");
+    expect(animFor("tool-use", "Grep")).toBe("reading");
+    expect(animFor("tool-use", "Bash")).toBe("tool-use");
+  });
+
+  it("其它状态仍走 STATE_MAP", () => {
+    expect(animFor("streaming")).toBe("streaming");
+    expect(animFor("thinking", "Read")).toBe("thinking");
   });
 });
 

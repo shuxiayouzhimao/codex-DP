@@ -4,7 +4,7 @@
   import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { PetRenderer } from "./lib/renderer";
-  import { STATE_MAP } from "./lib/state-machine";
+  import { STATE_MAP, animFor } from "./lib/state-machine";
   import { startEventBridge, listenSessionFilter } from "./lib/events";
   import { checkForUpdates } from "./lib/updater";
   import { PetState, type SessionMeta } from "./lib/petState";
@@ -174,7 +174,7 @@
       // 过滤模式下即使目标会话暂时无事件（count=0）也显示锁定目标
       sessionInfo = meta.count > 0 || meta.filtered ? formatMeta(meta) : "";
       sessionFiltered = meta.filtered;
-      renderer?.setAnim(STATE_MAP[s].anim);
+      renderer?.setAnim(animFor(s, meta.lastTool));
       requestCopy(s, d, meta);
       // 切入终态时提醒（任务栏闪烁）；设置可关
       if (

@@ -1,6 +1,6 @@
 import type { AnimDef, AnimName } from "./types";
 import { FramePlayer, type SheetMeta } from "./frame-player";
-import { isWorkingChurn } from "./working-churn";
+import { FALLBACK_DWELL_MS, isWorkingChurn } from "./working-churn";
 import { buildFrameSkins, buildSpriteUrls } from "./skins";
 import animationsJson from "../assets/config/animations.json";
 
@@ -38,6 +38,8 @@ export class PetRenderer {
   /** 出场段播放中：先播完出场再切到 pendingAnim（如齿轮消退） */
   private outro: { player: FramePlayer; start: number } | null = null;
   private pendingAnim: AnimName | null = null;
+  /** 工作态之间：等到循环边界再切；只保留最新目标 */
+  private deferredAnim: AnimName | null = null;
 
   /** once 动画播完回到 next 时回调（便于 UI 同步状态文案） */
   onAnimEnd: ((next: AnimName) => void) | null = null;
@@ -128,18 +130,36 @@ export class PetRenderer {
       if (anim === this.anim) {
         this.outro = null;
         this.pendingAnim = null;
+        this.deferredAnim = null;
       } else {
         this.pendingAnim = anim;
+        this.deferredAnim = null;
       }
       return;
     }
+    if (anim === this.anim) {
+      this.deferredAnim = null;
+      return;
+    }
+    const prev = this.anim;
+    // 工作态互相切：等当前循环边界，只保留最新目标（避免一直掐断）
+    if (isWorkingChurn(prev, anim)) {
+      this.deferredAnim = anim;
+      return;
+    }
+    this.deferredAnim = null;
+    this.commitAnim(anim);
+  }
+
+  /** 立即提交动画（含 outro / 跳过入场） */
+  private commitAnim(anim: AnimName, opts?: { skipIntro?: boolean }) {
     if (anim === this.anim) return;
     const prev = this.anim;
     const players = this.framePlayers.get(this.skin);
-    // 出场段（如 tool-use 齿轮）仅在工作真正结束时播（切到非工作态）；
-    // 工作态之间的高频交替跳过，避免特效反复消退
     const cur = players?.[prev];
     const workingChurn = isWorkingChurn(prev, anim);
+    const skipIntro = opts?.skipIntro ?? workingChurn;
+    // 出场段仅在离开工作态时播
     if (cur?.hasOutro() && !workingChurn) {
       this.outro = { player: cur, start: performance.now() };
       this.pendingAnim = anim;
@@ -147,12 +167,12 @@ export class PetRenderer {
     }
     this.anim = anim;
     this.animStart = performance.now();
-    // 工作态内切入三段式序列：跳过入场直接进循环段
-    if (workingChurn) {
+    if (skipIntro) {
       const next = players?.[anim];
       if (next) this.animStart -= next.introDurationMs();
     }
   }
+
   getAnim(): AnimName {
     return this.anim;
   }
@@ -177,9 +197,26 @@ export class PetRenderer {
       this.anim = next;
       this.onAnimEnd?.(next);
     }
+    this.flushDeferred(now);
     this.draw(ANIMATIONS[this.anim] ?? {}, now);
     this.raf = requestAnimationFrame(this.tick);
   };
+
+  /** 工作态推迟的目标：到循环边界（或无序列时 dwell）后切换 */
+  private flushDeferred(now: number) {
+    if (!this.deferredAnim || this.outro) return;
+    const next = this.deferredAnim;
+    if (next === this.anim) {
+      this.deferredAnim = null;
+      return;
+    }
+    const elapsed = now - this.animStart;
+    const player = this.framePlayers.get(this.skin)?.[this.anim];
+    const ready = player ? player.atLoopBoundary(elapsed) : elapsed >= FALLBACK_DWELL_MS;
+    if (!ready) return;
+    this.deferredAnim = null;
+    this.commitAnim(next, { skipIntro: true });
+  }
 
   private draw(def: AnimDef, now: number) {
     const ctx = this.ctx;

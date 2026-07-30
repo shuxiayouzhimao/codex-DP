@@ -16,6 +16,7 @@ export type AnimName =
   | "tool-use"
   | "waiting"
   | "streaming"
+  | "reading"
   | "success"
   | "error";
 

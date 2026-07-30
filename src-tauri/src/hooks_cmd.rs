@@ -117,7 +117,46 @@ fn node_version() -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-/// 已装 bridge 时检查是否缺关键事件（升级后用户常只装过旧列表）
+/// 从 hooks 配置文本提取 pet-bridge.mjs 的绝对路径（引号内）。
+fn extract_bridge_paths(text: &str) -> Vec<String> {
+    const NEEDLE: &str = "pet-bridge.mjs";
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(rel) = text[from..].find(NEEDLE) {
+        let abs = from + rel;
+        let before = &text[..abs];
+        if let Some(q) = before.rfind('"') {
+            let path = format!("{}{}", &text[q + 1..abs], NEEDLE);
+            if !path.is_empty() && !out.iter().any(|p| p == &path) {
+                out.push(path);
+            }
+        }
+        from = abs + NEEDLE.len();
+    }
+    out
+}
+
+/// 已登记的 bridge 路径是否仍存在（仓库搬迁 / 卸载旧版后常见失效）。
+fn bridge_paths_missing(text: &str) -> Option<String> {
+    let paths = extract_bridge_paths(text);
+    if paths.is_empty() {
+        return None;
+    }
+    let missing: Vec<_> = paths
+        .iter()
+        .filter(|p| !Path::new(p).is_file())
+        .cloned()
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "pet-bridge 路径已失效（文件不存在）。请再点「安装」写回本机路径。示例：{}",
+        missing[0]
+    ))
+}
+
+/// 已装 bridge 时检查：路径失效、或缺关键事件（升级后用户常只装过旧列表）
 fn source_hook_freshness(source: &str, path: &Path) -> (bool, bool, Option<String>) {
     let Ok(text) = std::fs::read_to_string(path) else {
         return (false, false, None);
@@ -125,6 +164,9 @@ fn source_hook_freshness(source: &str, path: &Path) -> (bool, bool, Option<Strin
     let installed = text.contains("pet-bridge.mjs");
     if !installed {
         return (false, false, None);
+    }
+    if let Some(hint) = bridge_paths_missing(&text) {
+        return (true, true, Some(hint));
     }
     let (ok, hint) = match source {
         "cursor" => {
@@ -287,7 +329,7 @@ fn unix_timestamp_millis() -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::for_node_path;
+    use super::{extract_bridge_paths, for_node_path};
     use std::path::PathBuf;
 
     #[test]
@@ -312,5 +354,16 @@ mod tests {
     fn leaves_normal_path() {
         let raw = PathBuf::from(r"D:\projects\codex-DP\adapters");
         assert_eq!(for_node_path(raw.clone()), raw);
+    }
+
+    #[test]
+    fn extracts_quoted_bridge_paths() {
+        let text =
+            r#"node "D:/projects/codex-DP/adapters/claude-code/pet-bridge.mjs" --source cursor"#;
+        let paths = extract_bridge_paths(text);
+        assert_eq!(
+            paths,
+            vec!["D:/projects/codex-DP/adapters/claude-code/pet-bridge.mjs".to_string()]
+        );
     }
 }

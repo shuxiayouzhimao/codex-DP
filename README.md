@@ -85,14 +85,24 @@ node adapters/cursor/install-hooks.mjs        # Cursor
 
 ## 发版
 
-同步 bump 版本号：`package.json` + `src-tauri/tauri.conf.json` + `src-tauri/Cargo.toml`。
+同步 bump 版本号：`node scripts/bump-version.mjs X.Y.Z`（三处 + package-lock）。
 
 ```bash
-# 1. 改版本号后提交
-git commit -am "Bump to X.Y.Z" && git push
-git tag vX.Y.Z && git push origin vX.Y.Z      # 2. CI 出 draft release（~7min）
-gh release edit vX.Y.Z --draft=false          # 3. 发布，客户端启动时自动更新
+git commit -am "Release X.Y.Z" && git push
+git tag vX.Y.Z && git push origin vX.Y.Z      # CI 出 draft（~7min）
+node scripts/check-release-assets.mjs vX.Y.Z  # 确认 .exe / .sig / latest.json
+gh release edit vX.Y.Z --draft=false          # 正式发布；客户端下次启动才检查更新
 ```
+
+**注意：** draft 期间 `releases/latest` 仍指旧版，重启不会立刻更到新包。
+
+### 安装版冒烟（发正式版前）
+
+1. 关掉 dev 实例，只跑安装版（单端口 4271）
+2. 设置 → Agent 连接：三源状态灯正常；缺项/路径失效显示黄灯并可「补装」
+3. 「推送测试事件」→ 宠物进入思考
+4. Cursor：需点 Run 的提示 → 等待动画 → 执行后工具/思考 → 完成
+5. Codex / Claude：各跑一轮短对话，确认气泡有变化
 
 本地出包：`TAURI_SIGNING_PRIVATE_KEY="$(cat ~/.tauri/codex-pet.key)" TAURI_SIGNING_PRIVATE_KEY_PASSWORD="" npm run tauri build`（空密码必须显式给，否则假死）
 

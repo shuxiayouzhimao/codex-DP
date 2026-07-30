@@ -17,6 +17,9 @@
   "streaming": {
     "bob": { "amp": 2, "period": 320 }
   },
+  "reading": {
+    "bob": { "amp": 2, "period": 320 }
+  },
   "success": {
     "bounce": { "amp": 4, "period": 600 }
   },

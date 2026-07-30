@@ -130,7 +130,12 @@ def resize_frames(frames, height: int):
 
 
 def pick_loop(frames):
-    """返回 (帧列表, mode)。全枚举 (i,j) 找首尾相似的最长段；失败则 ping-pong。"""
+    """返回 (帧列表, mode)。全枚举 (i,j) 找首尾相似的最长段；失败则 ping-pong。
+
+    ping-pong **不**把逆序烤进精灵表：只保留正放帧，mode=\"pingpong\" 由前端
+    frameIndex 做三角波往返（与 frame-player 单测一致）。旧逻辑拼接逆序再标
+    pingpong 会导致往返两次。
+    """
     small = [
         np.asarray(Image.fromarray(fr, "RGBA").resize((64, 64), Image.BILINEAR), np.float32)
         for fr in frames
@@ -153,10 +158,24 @@ def pick_loop(frames):
         seg = frames[i:j]
         print(f"[video_frames] 循环段：帧 {i}..{j - 1}（{length} 帧，首尾 MSE={-neg_m:.1f}）")
         return seg, "loop"
-    pp = frames + frames[-2:0:-1]
     print(f"[video_frames] 无相似循环段（首尾 MSE={mse(0, len(frames) - 1):.1f} "
-          f"> {LOOP_MSE_MAX}）→ ping-pong {len(pp)} 帧")
-    return pp, "pingpong"
+          f"> {LOOP_MSE_MAX}）→ ping-pong {len(frames)} 帧（前端往返）")
+    return frames, "pingpong"
+
+
+def decide_full(frames):
+    """--full：整段保留，不做短循环裁切。"""
+    small = [
+        np.asarray(Image.fromarray(fr, "RGBA").resize((64, 64), Image.BILINEAR), np.float32)
+        for fr in frames
+    ]
+    d = small[0] - small[-1]
+    m = float(np.mean(d * d))
+    if m <= LOOP_MSE_MAX:
+        print(f"[video_frames] --full：整段 loop {len(frames)} 帧（首尾 MSE={m:.1f}）")
+        return frames, "loop"
+    print(f"[video_frames] --full：整段 pingpong {len(frames)} 帧（首尾 MSE={m:.1f}，前端往返）")
+    return frames, "pingpong"
 
 
 def pack_sheet(frames):
@@ -213,6 +232,9 @@ def main() -> None:
                     help="循环段起始帧（默认=intro；intro 与 loopStart 之间的帧被丢弃）")
     ap.add_argument("--once", action="store_true",
                     help="一次性播放：整段播一遍停在最后一帧（终态动画用，跳过循环段检测）")
+    ap.add_argument("--full", action="store_true",
+                    help="保留全部抽帧，不做短循环段裁切（思考等完整动作）；"
+                         "首尾不相似则 pingpong 由前端往返")
     args = ap.parse_args()
 
     outdir = Path(args.outdir)
@@ -248,6 +270,8 @@ def main() -> None:
         print(f"[video_frames] 三段式：入场 {args.intro} 帧 → 循环 [{loop_start}, "
               f"{len(frames) - outro_n}) {len(frames) - outro_n - loop_start} 帧 → 出场 {outro_n} 帧"
               f"{'（入场倒放）' if args.outro == -1 else ''}")
+    elif args.full:
+        frames, mode = decide_full(frames)
     else:
         frames, mode = pick_loop(frames)
 
@@ -260,6 +284,8 @@ def main() -> None:
     (outdir / f"{args.name}.json").write_text(
         json.dumps(meta, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     Image.fromarray(frames[0], "RGBA").save(outdir / "_poster.png") if args.name == "idle" else None
+    # 按状态命名，避免多状态互相覆盖；并保留旧名兼容
+    contact_sheet(frames, outdir / f"_preview-{args.name}.png")
     contact_sheet(frames, outdir / "_preview.png")
 
     size_kb = (outdir / f"{args.name}.png").stat().st_size // 1024

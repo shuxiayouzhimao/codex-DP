@@ -31,10 +31,14 @@ const SPRITES = import.meta.glob("../assets/sprites/*.png", {
   import: "default",
 }) as Record<string, string>;
 
-const FRAME_PNG = import.meta.glob("../assets/frames/*/*.png", {
-  eager: true,
-  import: "default",
-}) as Record<string, string>;
+// 排除 _preview*（tools 抽帧预览，勿进安装包）
+const FRAME_PNG = import.meta.glob(
+  ["../assets/frames/*/*.png", "!../assets/frames/*/_preview*.png"],
+  {
+    eager: true,
+    import: "default",
+  },
+) as Record<string, string>;
 
 const FRAME_JSON = import.meta.glob("../assets/frames/*/*.json", {
   eager: true,

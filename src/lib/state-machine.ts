@@ -21,6 +21,17 @@ export function metaOf(s: AgentState): StateMeta {
   return STATE_MAP[s] ?? STATE_MAP.idle;
 }
 
+/** 读文件类工具 → 笔记本动画；其余 tool-use 仍用齿轮 */
+const READ_TOOL_RE =
+  /^(read|read_file|grep|glob|search|semanticsearch|file_search|rg|list_dir|ls)$/i;
+
+export function animFor(state: AgentState, tool?: string | null): AnimName {
+  if (state === "tool-use" && tool && READ_TOOL_RE.test(tool.trim())) {
+    return "reading";
+  }
+  return metaOf(state).anim;
+}
+
 /** 多会话聚合：取最高优先级状态（Phase 3+ 用） */
 export function aggregate(states: AgentState[]): AgentState {
   if (states.length === 0) return "idle";

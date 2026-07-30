@@ -42,7 +42,7 @@ describe("mapHook core mappings", () => {
     ["preToolUse", { tool: "edit" }, "tool-use"],
     ["preToolUse", { toolName: "Shell" }, "permission-prompt"],
     ["beforeSubmitPrompt", {}, "thinking"],
-    ["afterAgentResponse", {}, "thinking"],
+    ["afterAgentResponse", {}, "completed"],
     ["beforeShellExecution", {}, "permission-prompt"],
     ["afterShellExecution", {}, "thinking"],
     ["PostCompact", {}, "thinking"],

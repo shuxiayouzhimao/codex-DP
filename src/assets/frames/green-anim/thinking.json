@@ -1,8 +1,12 @@
 {
   "frameW": 192,
   "frameH": 256,
-  "cols": 4,
-  "count": 11,
+  "cols": 8,
+  "count": 61,
   "fps": 12.06,
-  "mode": "loop"
+  "mode": "loop",
+  "intro": 12,
+  "outro": 11,
+  "loopStart": 22,
+  "loopPingpong": true
 }

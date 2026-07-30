@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { frameIndex, outroDurationMs, outroIndex, phasedIndex } from "./frame-player";
+import {
+  frameIndex,
+  isAtLoopBoundary,
+  outroDurationMs,
+  outroIndex,
+  phasedIndex,
+} from "./frame-player";
 
 describe("frameIndex", () => {
   it("退化输入恒为 0", () => {
@@ -70,6 +76,17 @@ describe("phasedIndex（三段式：入场 → 中段循环）", () => {
     expect(at(500)).toBeGreaterThanOrEqual(20);
     expect(at(500)).toBeLessThan(47);
   });
+
+  it("loopPingpong：中段往返，不在首尾硬切", () => {
+    // loopLen=4, frames 5..8
+    const at = (step: number) => phasedIndex((step * 1000) / 10, 14, 10, 5, 5, 5, true);
+    expect(at(5)).toBe(5);
+    expect(at(6)).toBe(6);
+    expect(at(8)).toBe(8);
+    expect(at(9)).toBe(7); // 折返
+    expect(at(11)).toBe(5);
+    expect(at(12)).toBe(6); // 新一圈
+  });
 });
 
 describe("frameIndex once（一次性播放）", () => {
@@ -98,5 +115,32 @@ describe("outroIndex / outroDurationMs（出场段）", () => {
   it("时长 = outro / fps", () => {
     expect(outroDurationMs(12, 12)).toBe(1000);
     expect(outroDurationMs(0, 12)).toBe(0);
+  });
+});
+
+describe("isAtLoopBoundary", () => {
+  it("loop：整圈后为 true", () => {
+    const meta = { frameW: 1, frameH: 1, cols: 1, count: 10, fps: 10, mode: "loop" as const };
+    expect(isAtLoopBoundary(0, meta)).toBe(false);
+    expect(isAtLoopBoundary(500, meta)).toBe(false); // step 5
+    expect(isAtLoopBoundary(1000, meta)).toBe(true); // step 10
+  });
+
+  it("三段式：入场中不可切，入场后每圈可切", () => {
+    const meta = {
+      frameW: 1,
+      frameH: 1,
+      cols: 1,
+      count: 30,
+      fps: 10,
+      mode: "loop" as const,
+      intro: 5,
+      outro: 5,
+    };
+    // loopLen = 20
+    expect(isAtLoopBoundary(0, meta)).toBe(false); // intro
+    expect(isAtLoopBoundary(400, meta)).toBe(false); // step 4 still intro
+    expect(isAtLoopBoundary(500, meta)).toBe(false); // step 5 = intro 刚结束 into=0
+    expect(isAtLoopBoundary(2500, meta)).toBe(true); // step 25 → into 20
   });
 });
