@@ -55,8 +55,17 @@ function workRules(req: CopyRequest): string {
     case "tool-use":
       return tool ? `翻翻看「${tool}」…` : "动手干活中…";
     case "permission-prompt":
-      return "等你点头才能继续";
+      // 有命令/工具详情时优先展示（Cursor 点 Run）
+      if (req.detail?.trim()) {
+        const d = req.detail.trim();
+        return d.length > 20 ? `${d.slice(0, 18)}…` : d;
+      }
+      return tool ? `等你点头：「${tool}」` : "等你点 Run / 批准";
     case "ask-user":
+      if (req.detail?.trim()) {
+        const d = req.detail.trim();
+        return d.length > 20 ? `${d.slice(0, 18)}…` : d;
+      }
       return "需要你拍个板";
     case "streaming":
       return "正在往外吐字…";

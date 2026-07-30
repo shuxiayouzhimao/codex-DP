@@ -53,23 +53,53 @@ export const MAP = {
   // Cursor（camelCase）
   beforeSubmitPrompt: () => ({ state: "thinking", detail: "思考中" }),
   preCompact: () => ({ state: "thinking", detail: "压缩上下文" }),
-  preToolUse: (p) => ({ state: "tool-use", tool: toolOf(p), detail: toolOf(p) ? `执行 ${toolOf(p)}` : "执行工具" }),
+  preToolUse: (p) => {
+    const tool = toolOf(p);
+    const t = String(tool || "").toLowerCase();
+    // Cursor：Shell/MCP 常在「点 Run」门闩前触发；先标等待审批（beforeShell/MCP 同理）
+    if (t === "shell" || t === "bash" || t.startsWith("mcp")) {
+      return {
+        state: "permission-prompt",
+        tool,
+        detail: tool ? `等待确认 ${tool}` : "等待确认",
+      };
+    }
+    return {
+      state: "tool-use",
+      tool,
+      detail: tool ? `执行 ${tool}` : "执行工具",
+    };
+  },
   postToolUse: (p) => ({ state: "thinking", tool: toolOf(p), detail: toolOf(p) ? `处理 ${toolOf(p)} 结果` : "处理结果" }),
   postToolUseFailure: (p) => ({ state: "error-interrupted", tool: toolOf(p), detail: toolOf(p) ? `${toolOf(p)} 失败` : "工具失败" }),
   afterAgentThought: () => ({ state: "thinking", detail: "思考中" }),
   // 整条 assistant 消息完成后触发——不是 token 流，勿映射 streaming
   afterAgentResponse: () => ({ state: "thinking", detail: "整理回复" }),
   afterFileEdit: (p) => ({ state: "tool-use", tool: toolOf(p) || "Edit", detail: "改完文件" }),
-  // 仅观察：桌宠零阻塞，不能代用户点批准；覆盖面也只限 shell/MCP
-  beforeShellExecution: (p) => ({
-    state: "permission-prompt",
+  // 点 Run / 审批门闩：桌宠只能观察，不能代点批准
+  beforeShellExecution: (p) => {
+    const cmd = typeof p.command === "string" ? p.command.trim() : "";
+    const short = cmd.length > 24 ? cmd.slice(0, 23) + "…" : cmd;
+    return {
+      state: "permission-prompt",
+      tool: toolOf(p) || "Shell",
+      detail: short ? `等待确认：${short}` : "等待确认命令",
+    };
+  },
+  afterShellExecution: (p) => ({
+    state: "thinking",
     tool: toolOf(p) || "Shell",
-    detail: "等待确认命令",
+    detail: "命令已执行",
   }),
   beforeMCPExecution: (p) => ({
     state: "permission-prompt",
     tool: toolOf(p) || "MCP",
     detail: "等待确认 MCP",
+  }),
+  afterMCPExecution: (p) => ({
+    state: "thinking",
+    tool: toolOf(p) || "MCP",
+    detail: "MCP 已执行",
   }),
   subagentStart: () => ({ state: "tool-use", detail: "子任务执行中" }),
   subagentStop: () => ({ state: "completed", detail: "子任务完成" }),

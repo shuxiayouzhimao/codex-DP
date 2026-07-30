@@ -37,7 +37,9 @@ const EVENTS = [
   "afterAgentResponse",
   "afterFileEdit",
   "beforeShellExecution",
+  "afterShellExecution",
   "beforeMCPExecution",
+  "afterMCPExecution",
   "stop",
 ];
 

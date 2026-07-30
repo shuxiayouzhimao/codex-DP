@@ -13,6 +13,10 @@ pub struct SourceHookStatus {
     pub source: String,
     pub label: String,
     pub installed: bool,
+    /// 已装 pet-bridge 但缺关键事件（如 Cursor 的 beforeShellExecution）
+    pub needs_update: bool,
+    /// 缺项说明；无缺项时为 null
+    pub missing_hint: Option<String>,
     pub config_path: String,
 }
 
@@ -33,10 +37,22 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Windows `canonicalize` 会带 `\\?\` 前缀；Node 解析入口脚本时会 EISDIR `lstat 'D:'`。
+fn for_node_path(p: PathBuf) -> PathBuf {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        if let Some(unc) = rest.strip_prefix(r"UNC\") {
+            return PathBuf::from(format!(r"\\{unc}"));
+        }
+        return PathBuf::from(rest);
+    }
+    p
+}
+
 /// 开发态：仓库 `adapters/`；安装版：`$RESOURCE/adapters`。
 pub fn adapters_dir(app: &AppHandle) -> Result<PathBuf, String> {
     if let Ok(res) = app.path().resource_dir() {
-        let packaged = res.join("adapters");
+        let packaged = for_node_path(res.join("adapters"));
         if packaged
             .join("claude-code")
             .join("install-hooks.mjs")
@@ -46,7 +62,7 @@ pub fn adapters_dir(app: &AppHandle) -> Result<PathBuf, String> {
         }
     }
     let dev = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..").join("adapters");
-    let dev = std::fs::canonicalize(&dev).unwrap_or(dev);
+    let dev = for_node_path(std::fs::canonicalize(&dev).unwrap_or(dev));
     if dev
         .join("claude-code")
         .join("install-hooks.mjs")
@@ -101,10 +117,47 @@ fn node_version() -> Option<String> {
     Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn file_contains_pet_bridge(path: &Path) -> bool {
-    std::fs::read_to_string(path)
-        .map(|s| s.contains("pet-bridge.mjs"))
-        .unwrap_or(false)
+/// 已装 bridge 时检查是否缺关键事件（升级后用户常只装过旧列表）
+fn source_hook_freshness(source: &str, path: &Path) -> (bool, bool, Option<String>) {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return (false, false, None);
+    };
+    let installed = text.contains("pet-bridge.mjs");
+    if !installed {
+        return (false, false, None);
+    }
+    let (ok, hint) = match source {
+        "cursor" => {
+            let has = text.contains("beforeShellExecution");
+            (
+                has,
+                (!has).then_some(
+                    "缺少 beforeShellExecution：点 Run 时桌宠不会进入「等待审批」。请再点一次「安装」补齐。"
+                        .into(),
+                ),
+            )
+        }
+        "codex" => {
+            let has = text.contains("PermissionRequest") && text.contains("SubagentStart");
+            (
+                has,
+                (!has).then_some(
+                    "hooks 事件偏旧（缺 PermissionRequest / Subagent）。请再点一次「安装」补齐。".into(),
+                ),
+            )
+        }
+        "claude-code" => {
+            let has = text.contains("PermissionRequest") && text.contains("Elicitation");
+            (
+                has,
+                (!has).then_some(
+                    "hooks 事件偏旧（缺审批/提问事件）。请再点一次「安装」补齐。".into(),
+                ),
+            )
+        }
+        _ => (true, None),
+    };
+    (true, !ok, hint)
 }
 
 pub fn hooks_status(app: &AppHandle) -> HooksStatus {
@@ -117,25 +170,27 @@ pub fn hooks_status(app: &AppHandle) -> HooksStatus {
         Err(_) => (false, None),
     };
 
+    let mk = |source: &str, label: &str, rel: PathBuf| {
+        let config_path = rel.display().to_string();
+        let (installed, needs_update, missing_hint) = source_hook_freshness(source, &rel);
+        SourceHookStatus {
+            source: source.into(),
+            label: label.into(),
+            installed,
+            needs_update,
+            missing_hint,
+            config_path,
+        }
+    };
+
     let sources = vec![
-        SourceHookStatus {
-            source: "claude-code".into(),
-            label: "Claude Code".into(),
-            config_path: home.join(".claude").join("settings.json").display().to_string(),
-            installed: file_contains_pet_bridge(&home.join(".claude").join("settings.json")),
-        },
-        SourceHookStatus {
-            source: "codex".into(),
-            label: "Codex CLI".into(),
-            config_path: home.join(".codex").join("hooks.json").display().to_string(),
-            installed: file_contains_pet_bridge(&home.join(".codex").join("hooks.json")),
-        },
-        SourceHookStatus {
-            source: "cursor".into(),
-            label: "Cursor".into(),
-            config_path: home.join(".cursor").join("hooks.json").display().to_string(),
-            installed: file_contains_pet_bridge(&home.join(".cursor").join("hooks.json")),
-        },
+        mk(
+            "claude-code",
+            "Claude Code",
+            home.join(".claude").join("settings.json"),
+        ),
+        mk("codex", "Codex CLI", home.join(".codex").join("hooks.json")),
+        mk("cursor", "Cursor", home.join(".cursor").join("hooks.json")),
     ];
 
     HooksStatus {
@@ -228,4 +283,34 @@ fn unix_timestamp_millis() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::for_node_path;
+    use std::path::PathBuf;
+
+    #[test]
+    fn strips_windows_verbatim_prefix() {
+        let raw = PathBuf::from(r"\\?\D:\projects\codex-DP\adapters");
+        assert_eq!(
+            for_node_path(raw),
+            PathBuf::from(r"D:\projects\codex-DP\adapters")
+        );
+    }
+
+    #[test]
+    fn strips_verbatim_unc() {
+        let raw = PathBuf::from(r"\\?\UNC\server\share\adapters");
+        assert_eq!(
+            for_node_path(raw),
+            PathBuf::from(r"\\server\share\adapters")
+        );
+    }
+
+    #[test]
+    fn leaves_normal_path() {
+        let raw = PathBuf::from(r"D:\projects\codex-DP\adapters");
+        assert_eq!(for_node_path(raw.clone()), raw);
+    }
 }

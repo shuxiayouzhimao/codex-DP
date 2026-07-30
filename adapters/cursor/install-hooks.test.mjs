@@ -18,7 +18,7 @@ describe("cursor install-hooks", () => {
       assert.ok(fs.existsSync(hooksPath));
       let hooks = JSON.parse(fs.readFileSync(hooksPath, "utf8"));
       const n1 = countPetBridge(hooks);
-      assert.ok(n1 >= 15, `期望至少 15 处 pet-bridge，实际 ${n1}`);
+      assert.ok(n1 >= 17, `期望至少 17 处 pet-bridge，实际 ${n1}`);
 
       r = runInstall(SCRIPT, [], env);
       assert.equal(r.status, 0, r.stderr || r.stdout);

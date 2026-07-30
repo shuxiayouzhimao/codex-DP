@@ -16,7 +16,7 @@ describe("event-map MAP snapshot", () => {
     const expected = [
       "beforeSubmitPrompt", "preCompact", "preToolUse", "postToolUse", "postToolUseFailure",
       "afterAgentThought", "afterAgentResponse", "afterFileEdit",
-      "beforeShellExecution", "beforeMCPExecution",
+      "beforeShellExecution", "afterShellExecution", "beforeMCPExecution", "afterMCPExecution",
       "subagentStart", "subagentStop", "sessionStart", "sessionEnd", "stop",
     ];
     for (const name of expected) assert.equal(typeof MAP[name], "function", name);
@@ -40,9 +40,11 @@ describe("mapHook core mappings", () => {
     ["Stop", {}, "completed"],
     ["StopFailure", {}, "error-interrupted"],
     ["preToolUse", { tool: "edit" }, "tool-use"],
+    ["preToolUse", { toolName: "Shell" }, "permission-prompt"],
     ["beforeSubmitPrompt", {}, "thinking"],
     ["afterAgentResponse", {}, "thinking"],
     ["beforeShellExecution", {}, "permission-prompt"],
+    ["afterShellExecution", {}, "thinking"],
     ["PostCompact", {}, "thinking"],
     ["stop", {}, "completed"],
   ];

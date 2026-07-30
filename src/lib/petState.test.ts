@@ -10,6 +10,7 @@ function ev(partial: Partial<AgentEventPayload> & { state: AgentState }): AgentE
     sessionId: partial.sessionId ?? "s1",
     state: partial.state,
     detail: partial.detail,
+    tool: partial.tool,
     project: partial.project,
   };
 }
@@ -84,6 +85,34 @@ describe("PetState", () => {
     pet.handleEvent(ev({ state: "permission-prompt" }));
     vi.advanceTimersByTime(60_000);
     expect(last.state).toBe("permission-prompt");
+  });
+
+  it("waiting is not overwritten by idle thinking noise", () => {
+    pet.handleEvent(ev({ state: "permission-prompt", detail: "等待确认：ls" }));
+    expect(last.state).toBe("permission-prompt");
+    expect(last.detail).toBe("等待确认：ls");
+
+    pet.handleEvent(ev({ state: "thinking", detail: "思考中" }));
+    expect(last.state).toBe("permission-prompt");
+    expect(last.detail).toBe("等待确认：ls");
+
+    // 点 Run 之后：有意义的离开门闩事件应放行
+    pet.handleEvent(ev({ state: "thinking", detail: "处理 Shell 结果", tool: "Shell" }));
+    expect(last.state).toBe("thinking");
+  });
+
+  it("waiting yields to after-run tool-use", () => {
+    pet.handleEvent(ev({ state: "permission-prompt", detail: "等待确认：ls" }));
+    pet.handleEvent(ev({ state: "tool-use", detail: "命令执行中" }));
+    expect(last.state).toBe("tool-use");
+  });
+
+  it("terminal is not overwritten by idle thinking noise", () => {
+    pet.setOptions({ clickToDismiss: true, terminalHoldMs: 60_000 });
+    pet.handleEvent(ev({ state: "completed", detail: "完成" }));
+    pet.handleEvent(ev({ state: "thinking", detail: "思考中" }));
+    expect(last.state).toBe("completed");
+    expect(last.detail).toBe("完成");
   });
 
   it("terminal holds until dismiss when clickToDismiss", () => {

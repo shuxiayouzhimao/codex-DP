@@ -25,8 +25,17 @@ describe("rulesCopy 工作态", () => {
       "翻翻看「写入」…",
     );
     expect(rulesCopy(req({ state: "permission-prompt", kind: "work" }))).toBe(
-      "等你点头才能继续",
+      "等你点 Run / 批准",
     );
+    expect(
+      rulesCopy(
+        req({
+          state: "permission-prompt",
+          kind: "work",
+          detail: "等待确认：npm test",
+        }),
+      ),
+    ).toBe("等待确认：npm test");
     expect(rulesCopy(req({ state: "ask-user", kind: "work" }))).toBe("需要你拍个板");
     expect(rulesCopy(req({ state: "streaming", kind: "work" }))).toBe("正在往外吐字…");
   });

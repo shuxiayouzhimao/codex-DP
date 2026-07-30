@@ -69,11 +69,20 @@
     await refreshSessions();
   }
 
+  function errText(e: unknown): string {
+    if (typeof e === "string") return e;
+    if (e instanceof Error) return e.message;
+    if (e && typeof e === "object" && "message" in e) {
+      return String((e as { message: unknown }).message);
+    }
+    return String(e);
+  }
+
   async function resetPosition() {
     try {
       await invoke("reset_pet_position");
     } catch (e) {
-      hooksErr = e instanceof Error ? e.message : String(e);
+      hooksErr = errText(e);
     }
   }
 
@@ -81,7 +90,7 @@
     try {
       hooks = await invoke<HooksStatus>("hooks_status");
     } catch (e) {
-      hooksErr = e instanceof Error ? e.message : String(e);
+      hooksErr = errText(e);
     }
   }
 
@@ -96,7 +105,7 @@
       hooksMsg = msg;
       await refreshHooks();
     } catch (e) {
-      hooksErr = e instanceof Error ? e.message : String(e);
+      hooksErr = errText(e);
     } finally {
       hooksBusy = "";
     }
@@ -109,7 +118,7 @@
     try {
       hooksMsg = await invoke<string>("probe_event_channel");
     } catch (e) {
-      hooksErr = e instanceof Error ? e.message : String(e);
+      hooksErr = errText(e);
     } finally {
       hooksBusy = "";
     }
@@ -180,8 +189,7 @@
       <h2>Agent 连接</h2>
       <p class="hint">
         一键安装 hooks，让 Claude Code / Codex / Cursor 把状态推到桌宠。需要本机已装 Node.js。
-        Cursor 无统一审批 hook（仅 shell/MCP 前置观察，不能代点批准）；三源均无可靠「逐字输出」hook，streaming
-        动画仅素材+规则文案，不装假状态。校准载荷用 PET_DEBUG=1。
+        Cursor 点「Run」依赖 beforeShellExecution / beforeMCPExecution（安装后才有）；无统一审批 hook，不能代点批准。streaming 仅素材+规则。校准用 PET_DEBUG=1。
       </p>
       {#if hooks}
         <p class="meta">
@@ -189,22 +197,41 @@
           · adapters：{hooks.adaptersOk ? "就绪" : "缺失"}
         </p>
         {#each hooks.sources as s}
-          <div class="agent-row">
-            <span class="dot" class:on={s.installed} title={s.configPath}></span>
-            <span class="agent-name">{s.label}</span>
-            <span class="agent-state">{s.installed ? "已安装" : "未安装"}</span>
-            <button
-              class="chip"
-              disabled={hooksBusy !== ""}
-              onclick={() => void doInstall(s.source, false)}
-              >{hooksBusy === s.source + ":on" ? "…" : "安装"}</button
-            >
-            <button
-              class="chip"
-              disabled={hooksBusy !== "" || !s.installed}
-              onclick={() => void doInstall(s.source, true)}
-              >{hooksBusy === s.source + ":off" ? "…" : "卸载"}</button
-            >
+          <div class="agent-block">
+            <div class="agent-row">
+              <span
+                class="dot"
+                class:on={s.installed && !s.needsUpdate}
+                class:warn={s.installed && s.needsUpdate}
+                title={s.configPath}
+              ></span>
+              <span class="agent-name">{s.label}</span>
+              <span class="agent-state">
+                {#if !s.installed}
+                  未安装
+                {:else if s.needsUpdate}
+                  需更新
+                {:else}
+                  已安装
+                {/if}
+              </span>
+              <button
+                class="chip"
+                class:accent={s.needsUpdate}
+                disabled={hooksBusy !== ""}
+                onclick={() => void doInstall(s.source, false)}
+                >{hooksBusy === s.source + ":on" ? "…" : s.needsUpdate ? "补装" : "安装"}</button
+              >
+              <button
+                class="chip"
+                disabled={hooksBusy !== "" || !s.installed}
+                onclick={() => void doInstall(s.source, true)}
+                >{hooksBusy === s.source + ":off" ? "…" : "卸载"}</button
+              >
+            </div>
+            {#if s.needsUpdate && s.missingHint}
+              <p class="warn-hint">{s.missingHint}</p>
+            {/if}
           </div>
         {/each}
         <div class="sub">
@@ -554,15 +581,19 @@
     font-size: 12px;
     color: #64748b;
   }
+  .agent-block {
+    padding: 4px 0 8px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .agent-block:last-of-type {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
   .agent-row {
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 6px 0;
-    border-bottom: 1px solid #f1f5f9;
-  }
-  .agent-row:last-of-type {
-    border-bottom: none;
+    padding: 6px 0 0;
   }
   .dot {
     width: 8px;
@@ -573,6 +604,23 @@
   }
   .dot.on {
     background: #22c55e;
+  }
+  .dot.warn {
+    background: #f59e0b;
+  }
+  .warn-hint {
+    margin: 4px 0 0 16px;
+    padding: 6px 10px;
+    background: #fffbeb;
+    border-radius: 8px;
+    color: #b45309;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .chip.accent {
+    border-color: #f59e0b;
+    color: #b45309;
+    background: #fffbeb;
   }
   .agent-name {
     font-weight: 600;

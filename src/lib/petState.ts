@@ -30,6 +30,23 @@ const DEFAULT_OPTIONS: PetOptions = {
   workDecayMs: 5 * 60_000,
 };
 
+/**
+ * 等待/终态期间可忽略的「空转思考」噪声（Cursor afterAgentThought 等）。
+ * 有 tool，或 detail 像「命令执行中 / 处理结果」时放行，避免审批动画卡死。
+ */
+function isIdleThinkingNoise(ev: AgentEventPayload): boolean {
+  if (ev.state !== "thinking" && ev.state !== "streaming") return false;
+  if (ev.tool) return false;
+  const d = (ev.detail ?? "").trim();
+  return (
+    d === "" ||
+    d === "思考中" ||
+    d === "压缩上下文" ||
+    d === "压缩完成" ||
+    d === "整理回复"
+  );
+}
+
 export interface SessionMeta {
   /** 当前活跃会话数（TTL 内、且通过过滤） */
   count: number;
@@ -49,7 +66,7 @@ export interface SessionMeta {
  * - 工作态 thinking/tool-use/streaming：靠事件推进，5min 无事件才兜底回闲置（防卡死）。
  * - 等待态 permission-prompt/ask-user：不衰减，直到用户操作引发新事件（30min 兜底）。
  * - 终态 completed/error-interrupted：保持到用户点击桌宠确认（dismissTerminal）或新事件（30min 兜底）。
- * - 任何新事件都会打断上述计时并立即切换。
+ * - 等待/终态期间忽略空转 thinking，但放行 tool-use / 带工具的后续态。
  * 另：多会话按优先级聚合、会话 90s 过期、setFilter 可锁定单会话。
  */
 export class PetState {
@@ -63,6 +80,8 @@ export class PetState {
   private current: AgentState = "idle";
   private timer: ReturnType<typeof setTimeout> | undefined;
   private opts: PetOptions = { ...DEFAULT_OPTIONS };
+  /** 等待/终态时保留 detail，避免被 thinking 冲掉后气泡变空 */
+  private lastWaitDetail = "";
 
   constructor(
     private onChange: (s: AgentState, detail: string, meta: SessionMeta) => void
@@ -90,6 +109,27 @@ export class PetState {
     if (!this.willHandle(ev)) return false;
     const key = `${ev.source}:${ev.sessionId ?? ""}`;
     this.lastKey = key;
+
+    const prev = this.sessions.get(key);
+    // 等待审批：只挡住空转 thinking（如 afterAgentThought），
+    // 放行「命令已执行 / 处理结果」等真正离开门闩的事件
+    if (prev && WAIT_USER.has(prev.state) && isIdleThinkingNoise(ev)) {
+      this.sessions.set(key, { state: prev.state, ts: Date.now() });
+      this.recompute(this.lastWaitDetail || "");
+      return true;
+    }
+    // 终态：同样只挡空转思考，避免盖住完成气泡
+    if (prev && TERMINAL.has(prev.state) && isIdleThinkingNoise(ev)) {
+      this.sessions.set(key, { state: prev.state, ts: Date.now() });
+      this.recompute(this.lastWaitDetail || "");
+      return true;
+    }
+
+    if (WAIT_USER.has(ev.state) || TERMINAL.has(ev.state)) {
+      this.lastWaitDetail = ev.detail ?? "";
+    } else if (ev.state !== "thinking" && ev.state !== "streaming") {
+      this.lastWaitDetail = "";
+    }
     this.sessions.set(key, { state: ev.state, ts: Date.now() });
     this.recompute(ev.detail ?? "");
     return true;
@@ -168,6 +208,7 @@ export class PetState {
     } else {
       this.sessions.clear();
     }
+    this.lastWaitDetail = "";
     this.current = "idle";
     this.onChange("idle", "", this.meta());
   }

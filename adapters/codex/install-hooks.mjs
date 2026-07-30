@@ -69,7 +69,8 @@ function ensureFeatureEnabled() {
   } catch {
     toml = "";
   }
-  if (/\[features\][^[]]*\bhooks\s*=\s*true/s.test(toml)) return false;
+  // [^[]*：匹配到下一个 TOML 表头为止（旧写法 [^[]]* 会误匹配，导致每次安装重复追加）
+  if (/\[features\][^[]*\bhooks\s*=\s*true/s.test(toml)) return false;
   const add = `\n[features]\nhooks = true\n`;
   fs.writeFileSync(CONFIG, toml.replace(/\s*$/, "") + add, "utf8");
   return true;

@@ -3,6 +3,9 @@ export interface SourceHookStatus {
   source: string;
   label: string;
   installed: boolean;
+  /** 已装但缺关键事件，需再点安装 */
+  needsUpdate: boolean;
+  missingHint?: string | null;
   configPath: string;
 }
 

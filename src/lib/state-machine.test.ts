@@ -14,8 +14,8 @@ describe("aggregate", () => {
   });
 
   it("ties keep first highest among equals", () => {
-    // tool-use / permission-prompt / ask-user / error-interrupted all priority 3
-    expect(aggregate(["tool-use", "permission-prompt"])).toBe("tool-use");
+    // tool-use=3；permission/ask/error=4 → 等待审批压过执行中
+    expect(aggregate(["tool-use", "permission-prompt"])).toBe("permission-prompt");
   });
 });
 
