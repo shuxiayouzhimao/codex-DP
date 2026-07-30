@@ -35,7 +35,7 @@ struct WindowState {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default, rename_all = "camelCase")]
 pub(crate) struct Settings {
-    /// 皮肤："green" | "red"
+    /// 皮肤："green" | "red" | "green-anim"（帧动画，其余见前端 renderer.ts）
     pub skin: String,
     /// true=终态保持到点击确认；false=终态 ~5s 自动回闲置
     pub click_to_dismiss: bool,
@@ -134,7 +134,11 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         .enabled(true)
         .checked(skin == "red")
         .build(app)?;
-    let skin_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![&green_i, &red_i];
+    let green_anim_i = CheckMenuItemBuilder::with_id(format!("{SKIN_PREFIX}green-anim"), "绿毛衣·动画")
+        .enabled(true)
+        .checked(skin == "green-anim")
+        .build(app)?;
+    let skin_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![&green_i, &red_i, &green_anim_i];
     let skin_sub = SubmenuBuilder::new(app, "换肤")
         .enabled(true)
         .items(&skin_refs)

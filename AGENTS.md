@@ -19,6 +19,7 @@ Windows 桌宠（Tauri 2 + Svelte 5）：各编程 Agent 经 hooks 推送状态�
 |------|------|
 | 新 Agent / 事件映射 | `adapters/lib/event-map.mjs` + `adapters/<agent>/install-hooks.mjs`；桥接入口仍是 `adapters/claude-code/pet-bridge.mjs` |
 | 新皮肤 | `tools/cutout.py` → `src/assets/sprites/` → `renderer.ts` / `Config.svelte` / `lib.rs` 菜单 |
+| 新帧动画皮肤 | `tools/video_frames.py`（视频抽帧）→ `src/assets/frames/<key>/` → 同上加一条；视频规格见 `data/Character Vedio/视频需求.md` |
 | 动画参数 | `src/assets/config/animations.json` |
 | 状态→文案/优先级 | `src/lib/state-machine.ts` |
 | 衰减/终态策略 | `src/lib/petState.ts` |

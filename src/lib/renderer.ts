@@ -1,7 +1,22 @@
 import type { AnimDef, AnimName } from "./types";
+import { FramePlayer, type SheetMeta } from "./frame-player";
 import animationsJson from "../assets/config/animations.json";
 import spriteGreenUrl from "../assets/sprites/sprite-green.png";
 import spriteRedUrl from "../assets/sprites/sprite-red.png";
+import greenAnimIdleUrl from "../assets/frames/green-anim/idle.png";
+import greenAnimIdleMeta from "../assets/frames/green-anim/idle.json";
+import greenAnimThinkingUrl from "../assets/frames/green-anim/thinking.png";
+import greenAnimThinkingMeta from "../assets/frames/green-anim/thinking.json";
+import greenAnimToolUseUrl from "../assets/frames/green-anim/tool-use.png";
+import greenAnimToolUseMeta from "../assets/frames/green-anim/tool-use.json";
+import greenAnimErrorUrl from "../assets/frames/green-anim/error.png";
+import greenAnimErrorMeta from "../assets/frames/green-anim/error.json";
+import greenAnimSuccessUrl from "../assets/frames/green-anim/success.png";
+import greenAnimSuccessMeta from "../assets/frames/green-anim/success.json";
+import greenAnimStreamingUrl from "../assets/frames/green-anim/streaming.png";
+import greenAnimStreamingMeta from "../assets/frames/green-anim/streaming.json";
+import greenAnimWaitingUrl from "../assets/frames/green-anim/waiting.png";
+import greenAnimWaitingMeta from "../assets/frames/green-anim/waiting.json";
 
 const ANIMATIONS = animationsJson as unknown as Record<AnimName, AnimDef>;
 
@@ -11,8 +26,27 @@ const SKIN_URLS: Record<string, string> = {
   red: spriteRedUrl,
 };
 
+/** 帧动画皮肤：皮肤 → 动画名 → 精灵表（tools/video_frames.py 产出）。
+ *  当前动画有专属序列时直接播放（序列自带动作，跳过整体变换）；
+ *  没有则回退 idle 序列 + animations.json 整体变换区分状态。 */
+const FRAME_SKINS: Record<string, Partial<Record<AnimName, { sheet: string; meta: SheetMeta }>>> = {
+  "green-anim": {
+    idle: { sheet: greenAnimIdleUrl, meta: greenAnimIdleMeta as SheetMeta },
+    thinking: { sheet: greenAnimThinkingUrl, meta: greenAnimThinkingMeta as SheetMeta },
+    "tool-use": { sheet: greenAnimToolUseUrl, meta: greenAnimToolUseMeta as SheetMeta },
+    error: { sheet: greenAnimErrorUrl, meta: greenAnimErrorMeta as SheetMeta },
+    success: { sheet: greenAnimSuccessUrl, meta: greenAnimSuccessMeta as SheetMeta },
+    streaming: { sheet: greenAnimStreamingUrl, meta: greenAnimStreamingMeta as SheetMeta },
+    waiting: { sheet: greenAnimWaitingUrl, meta: greenAnimWaitingMeta as SheetMeta },
+  },
+};
+
 /** 精灵绘制高度（逻辑像素，200px 画布内） */
 const SPRITE_H = 150;
+
+/** 工作态动画：真实会话中 thinking ↔ tool-use 高频交替，
+ *  它们之间切换不播入场/出场（否则齿轮反复出现/消退，像特效闪烁） */
+const WORKING_ANIMS: ReadonlySet<AnimName> = new Set(["thinking", "tool-use", "streaming"]);
 
 /**
  * Canvas 变换式动画引擎。
@@ -28,7 +62,11 @@ export class PetRenderer {
   private raf = 0;
   private running = false;
   private skins = new Map<string, HTMLImageElement>();
+  private framePlayers = new Map<string, Partial<Record<AnimName, FramePlayer>>>();
   private skin = "green";
+  /** 出场段播放中：先播完出场再切到 pendingAnim（如齿轮消退） */
+  private outro: { player: FramePlayer; start: number } | null = null;
+  private pendingAnim: AnimName | null = null;
 
   /** once 动画播完回到 next 时回调（便于 UI 同步状态文案） */
   onAnimEnd: ((next: AnimName) => void) | null = null;
@@ -62,7 +100,21 @@ export class PetRenderer {
           img.src = url;
         }),
     );
-    return Promise.all(jobs).then(() => undefined);
+    const frameJobs = Object.entries(FRAME_SKINS).map(([name, anims]) => {
+      const players: Partial<Record<AnimName, FramePlayer>> = {};
+      const loads = Object.entries(anims).map(([anim, def]) => {
+        if (!def) return Promise.resolve();
+        const player = new FramePlayer(def.meta, def.sheet);
+        return player.load().then((ok) => {
+          if (ok) players[anim as AnimName] = player;
+        });
+      });
+      // 至少有 idle 序列才认为该帧皮肤可用（回退路径依赖它）
+      return Promise.all(loads).then(() => {
+        if (players.idle) this.framePlayers.set(name, players);
+      });
+    });
+    return Promise.all([...jobs, ...frameJobs]).then(() => undefined);
   }
 
   setSkin(name: string) {
@@ -73,9 +125,35 @@ export class PetRenderer {
   }
 
   setAnim(anim: AnimName) {
+    // 出场播放中：同动画则取消出场（回到循环段），否则记下新目标等出场播完
+    if (this.outro) {
+      if (anim === this.anim) {
+        this.outro = null;
+        this.pendingAnim = null;
+      } else {
+        this.pendingAnim = anim;
+      }
+      return;
+    }
     if (anim === this.anim) return;
+    const prev = this.anim;
+    const players = this.framePlayers.get(this.skin);
+    // 出场段（如 tool-use 齿轮）仅在工作真正结束时播（切到非工作态）；
+    // 工作态之间的高频交替跳过，避免特效反复消退
+    const cur = players?.[prev];
+    const workingChurn = WORKING_ANIMS.has(prev) && WORKING_ANIMS.has(anim);
+    if (cur?.hasOutro() && !workingChurn) {
+      this.outro = { player: cur, start: performance.now() };
+      this.pendingAnim = anim;
+      return;
+    }
     this.anim = anim;
     this.animStart = performance.now();
+    // 工作态内切入三段式序列：跳过入场直接进循环段
+    if (workingChurn) {
+      const next = players?.[anim];
+      if (next) this.animStart -= next.introDurationMs();
+    }
   }
   getAnim(): AnimName {
     return this.anim;
@@ -109,7 +187,10 @@ export class PetRenderer {
     const ctx = this.ctx;
     const S = this.size;
     const t = (now - this.animStart) / 1000;
-    const dur = (def.duration ?? 800) / 1000;
+    // 当前动画有专属帧序列时，动作由序列自身承担，跳过整体参数变换
+    const hasSeq = this.framePlayers.get(this.skin)?.[this.anim] != null;
+    const effDef = hasSeq ? {} : def;
+    const dur = (effDef.duration ?? 800) / 1000;
     const u = Math.min(t / dur, 1);
 
     let dx = 0;
@@ -118,13 +199,13 @@ export class PetRenderer {
     let sy = 1;
     const osc = (period: number) => Math.sin((t * 1000 * 2 * Math.PI) / period);
 
-    if (def.bob) dy += osc(def.bob.period) * def.bob.amp;
-    if (def.bounce)
-      dy -= Math.abs(Math.sin((t * 1000 * Math.PI) / def.bounce.period)) * def.bounce.amp;
-    if (def.tilt) rot += osc(def.tilt.period) * ((def.tilt.amp * Math.PI) / 180);
-    if (def.breath) sy += osc(def.breath.period) * def.breath.sy;
-    if (def.shake) dx += osc(def.shake.period) * def.shake.amp;
-    if (def.jump) dy += -4 * u * (1 - u) * def.jump.h; // 抛物线：中点最高
+    if (effDef.bob) dy += osc(effDef.bob.period) * effDef.bob.amp;
+    if (effDef.bounce)
+      dy -= Math.abs(Math.sin((t * 1000 * Math.PI) / effDef.bounce.period)) * effDef.bounce.amp;
+    if (effDef.tilt) rot += osc(effDef.tilt.period) * ((effDef.tilt.amp * Math.PI) / 180);
+    if (effDef.breath) sy += osc(effDef.breath.period) * effDef.breath.sy;
+    if (effDef.shake) dx += osc(effDef.shake.period) * effDef.shake.amp;
+    if (effDef.jump) dy += -4 * u * (1 - u) * effDef.jump.h; // 抛物线：中点最高
 
     ctx.clearRect(0, 0, S, S);
     ctx.save();
@@ -135,8 +216,31 @@ export class PetRenderer {
     ctx.restore();
   }
 
-  /** 角色绘制：优先当前皮肤精灵，缺失时回退程序化 blob。均以原点为中心。 */
+  /** 角色绘制：优先帧动画皮肤 → 静态精灵 → 程序化 blob。均以原点为中心。 */
   private drawCharacter(ctx: CanvasRenderingContext2D, anim: AnimName, now: number) {
+    // 出场段：播完才切到 pendingAnim（期间 this.anim 仍是旧动画，整体变换保持关闭）
+    if (this.outro) {
+      const { player, start } = this.outro;
+      const elapsed = now - start;
+      if (elapsed >= player.outroDurationMs()) {
+        this.outro = null;
+        this.anim = this.pendingAnim ?? "idle";
+        this.pendingAnim = null;
+        this.animStart = now;
+      } else {
+        player.drawOutro(ctx, elapsed, this.shadowFn);
+        return;
+      }
+    }
+    // 帧皮肤：当前动画的专属序列，缺失时回退 idle 序列
+    const players = this.framePlayers.get(this.skin);
+    if (players) {
+      const player = players[anim] ?? players.idle;
+      if (player) {
+        player.draw(ctx, now - this.animStart, this.shadowFn);
+        return;
+      }
+    }
     const img = this.skins.get(this.skin);
     if (img) {
       const h = SPRITE_H;
@@ -147,6 +251,9 @@ export class PetRenderer {
     }
     this.drawBlob(ctx, anim, now);
   }
+
+  private shadowFn = (ctx: CanvasRenderingContext2D, rx: number, y: number, ry: number) =>
+    this.drawShadow(ctx, rx, y, ry);
 
   private drawShadow(ctx: CanvasRenderingContext2D, rx: number, y: number, ry: number) {
     ctx.save();

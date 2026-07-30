@@ -17,16 +17,18 @@ from PIL import Image
 from scipy import ndimage
 
 
-def cutout(src: str, dst: str, tol: int = 30, max_size: int = 512,
-           wm_frac=(0.32, 0.09), margin: int = 8) -> None:
-    im = Image.open(src).convert("RGBA")
-    w, h = im.size
-    arr = np.array(im).astype(np.uint8).copy()
+def remove_white_bg(arr: np.ndarray, tol: int = 30,
+                    wm_frac=(0.32, 0.09)) -> np.ndarray:
+    """RGBA uint8 数组 → （可选）遮水印 + 边缘泛洪去背（背景 alpha=0）。
+    wm_frac=None 表示不遮水印（无水印素材必须关闭，否则右下角内容被误删）。"""
+    h, w = arr.shape[:2]
+    arr = arr.copy()
 
     # 1) 遮水印：右下角矩形填白
-    fw, fh = wm_frac
-    x0, y0 = int(w * (1 - fw)), int(h * (1 - fh))
-    arr[y0:h, x0:w, 0:3] = 255
+    if wm_frac:
+        fw, fh = wm_frac
+        x0, y0 = int(w * (1 - fw)), int(h * (1 - fh))
+        arr[y0:h, x0:w, 0:3] = 255
 
     # 2) 边缘泛洪去背（连通域版）
     rgb = arr[..., :3].astype(np.int16)
@@ -38,8 +40,16 @@ def cutout(src: str, dst: str, tol: int = 30, max_size: int = 512,
     background = np.isin(labels, list(border_labels)) if border_labels else np.zeros((h, w), bool)
 
     # 3) 背景透明
-    out = arr.copy()
-    out[..., 3] = np.where(background, 0, 255).astype(np.uint8)
+    arr[..., 3] = np.where(background, 0, 255).astype(np.uint8)
+    return arr
+
+
+def cutout(src: str, dst: str, tol: int = 30, max_size: int = 512,
+           wm_frac=(0.32, 0.09), margin: int = 8) -> None:
+    im = Image.open(src).convert("RGBA")
+    w, h = im.size
+    arr = np.array(im).astype(np.uint8)
+    out = remove_white_bg(arr, tol=tol, wm_frac=wm_frac)
 
     # 4) 内容包围盒裁剪 + 边距
     ys, xs = np.where(out[..., 3] > 0)

@@ -1,0 +1,11 @@
+{
+  "frameW": 192,
+  "frameH": 256,
+  "cols": 8,
+  "count": 59,
+  "fps": 12.06,
+  "mode": "loop",
+  "intro": 12,
+  "outro": 12,
+  "loopStart": 20
+}

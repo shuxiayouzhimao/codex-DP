@@ -4,6 +4,7 @@
   import { listen, type UnlistenFn } from "@tauri-apps/api/event";
   import spriteGreenUrl from "../assets/sprites/sprite-green.png";
   import spriteRedUrl from "../assets/sprites/sprite-red.png";
+  import greenAnimPosterUrl from "../assets/frames/green-anim/_poster.png";
 
   /** 与 Rust Settings 一致（camelCase） */
   interface Settings {
@@ -17,6 +18,7 @@
   const SKINS = [
     { key: "green", name: "绿毛衣", url: spriteGreenUrl },
     { key: "red", name: "红装", url: spriteRedUrl },
+    { key: "green-anim", name: "绿毛衣·动画", url: greenAnimPosterUrl },
   ];
   const HOLD_PRESETS = [
     { ms: 10 * 60_000, label: "10 分钟" },
