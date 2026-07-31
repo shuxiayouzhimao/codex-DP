@@ -6,5 +6,6 @@
   "fps": 12.06,
   "mode": "loop",
   "intro": 12,
-  "outro": 12
+  "outro": 12,
+  "loopPingpong": true
 }

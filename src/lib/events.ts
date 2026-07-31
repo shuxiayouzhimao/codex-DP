@@ -34,3 +34,18 @@ export async function listenSessionFilter(
 ): Promise<UnlistenFn> {
   return listen<string | null>("session-filter", (e) => onFilter(e.payload ?? null));
 }
+
+/** 去重未转发显示事件时，后端仍会 ping 以刷新前端会话 TTL */
+export interface SessionAlivePayload {
+  source: string;
+  sessionId: string;
+  project?: string;
+}
+
+export async function listenSessionAlive(
+  onAlive: (p: SessionAlivePayload) => void
+): Promise<UnlistenFn> {
+  return listen<SessionAlivePayload>("session-alive", (e) => {
+    if (e.payload?.source) onAlive(e.payload);
+  });
+}

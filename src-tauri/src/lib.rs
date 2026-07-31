@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 use tauri::{
+    image::Image,
     menu::{
         CheckMenuItemBuilder, ContextMenu, IsMenuItem, Menu, MenuBuilder, MenuItem,
         SubmenuBuilder,
@@ -21,6 +22,8 @@ use tauri_plugin_autostart::ManagerExt;
 /// “全部会话”菜单项 id 前缀；具体会话项为 "sess:source:sessionId"
 const SESS_PREFIX: &str = "sess:";
 const SESS_ALL: &str = "sess:__all__";
+/// 锁定会话已失联时的菜单项：点击等同回全部
+const SESS_LOST_CLEAR: &str = "sess:__lost_clear__";
 /// 换肤菜单项 id 前缀（"skin:green" / "skin:red"）
 const SKIN_PREFIX: &str = "skin:";
 
@@ -201,11 +204,30 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
 
     let mut sub_refs: Vec<&dyn IsMenuItem<tauri::Wry>> = vec![&all_i];
     let mut sess_items = Vec::new();
+    let lost_label = state.router.filter_lost_label();
+    let lost_i = if let Some(ref text) = lost_label {
+        Some(
+            CheckMenuItemBuilder::with_id(SESS_LOST_CLEAR, text)
+                .enabled(true)
+                .checked(true)
+                .build(app)?,
+        )
+    } else {
+        None
+    };
+    if let Some(ref it) = lost_i {
+        sub_refs.push(it);
+    }
     for s in &sessions {
         let id = format!("{SESS_PREFIX}{}", s.key);
         let checked = filter.as_deref() == Some(s.key.as_str());
+        let title = if s.short_id.is_empty() {
+            s.label.clone()
+        } else {
+            format!("{} · {}", s.label, s.short_id)
+        };
         sess_items.push(
-            CheckMenuItemBuilder::with_id(id, &s.label)
+            CheckMenuItemBuilder::with_id(id, &title)
                 .enabled(true)
                 .checked(checked)
                 .build(app)?,
@@ -319,10 +341,11 @@ fn menu_fingerprint(app: &AppHandle) -> String {
     let autostart = app.autolaunch().is_enabled().unwrap_or(false);
     let sess: String = sessions
         .iter()
-        .map(|s| format!("{}={}", s.key, s.label))
+        .map(|s| format!("{}={}:{}", s.key, s.label, s.short_id))
         .collect::<Vec<_>>()
         .join("|");
-    format!("{filter}|{sess}|{skin}|{autostart}")
+    let lost = state.router.filter_lost_label().unwrap_or_default();
+    format!("{filter}|{sess}|{lost}|{skin}|{autostart}")
 }
 
 /// 刷新托盘菜单（主线程）。会话指纹未变则跳过；有变则 ≥400ms 合并重建。
@@ -429,8 +452,8 @@ fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
                 let _ = app.emit("settings-changed", &snapshot);
                 refresh_menu(app);
             } else if let Some(rest) = id.strip_prefix(SESS_PREFIX) {
-                // "__all__" → 监听全部；否则锁定到该 "source:sessionId"
-                let filter = if rest == "__all__" {
+                // "__all__" / "__lost_clear__" → 监听全部；否则锁定到该 "source:sessionId"
+                let filter = if rest == "__all__" || rest == "__lost_clear__" {
                     None
                 } else {
                     Some(rest.to_string())
@@ -453,6 +476,10 @@ fn open_config_window(app: &AppHandle) {
             // 打开时 reload 一次，避免一直显示错误页。
             let _ = w.reload();
             let _ = w.unminimize();
+            // 每次打开居中主屏（设置窗不记忆拖拽位置）
+            if let Err(e) = w.center() {
+                eprintln!("[pet-menu] config center 失败: {e}");
+            }
             let r = w.show();
             println!("[pet-menu] config show -> {:?}", r);
             let _ = w.set_focus();
@@ -489,6 +516,7 @@ fn set_settings(app: AppHandle, settings: Settings) {
 
 /// OpenAI 兼容 Chat Completions；Base URL / Key / model 从 Settings 读取。
 /// 超时约 4s；错误返回 Err 字符串；**绝不把 Key 写入日志**。
+/// DeepSeek V4 默认 thinking 会把 max_tokens 耗在 reasoning 上导致 content 为空，请求时关闭。
 #[tauri::command]
 async fn chat_complete(
     app: AppHandle,
@@ -516,18 +544,22 @@ async fn chat_complete(
         return Err("未配置 API Key".into());
     }
     let url = format!("{base}/chat/completions");
-    let body = serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
         "messages": [
             { "role": "system", "content": system },
             { "role": "user", "content": user }
         ],
-        "max_tokens": max_tokens.unwrap_or(48),
+        "max_tokens": max_tokens.unwrap_or(96),
         "temperature": 0.7,
     });
+    // 气泡短句不需要链式思考；V4 默认 thinking 开着会先烧完 token
+    if copy_api_is_deepseek(&base, body["model"].as_str().unwrap_or("")) {
+        body["thinking"] = serde_json::json!({ "type": "disabled" });
+    }
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(4))
+        .timeout(Duration::from_secs(8))
         .build()
         .map_err(|e| format!("HTTP 客户端错误: {e}"))?;
 
@@ -558,12 +590,35 @@ async fn chat_complete(
     }
     let v: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("JSON 解析失败: {e}"))?;
-    let content = v["choices"][0]["message"]["content"]
+    extract_chat_content(&v)
+}
+
+/// Base URL 或 model 名像 DeepSeek → 关 thinking，避免短 max_tokens 被推理吃光。
+fn copy_api_is_deepseek(base: &str, model: &str) -> bool {
+    let b = base.to_ascii_lowercase();
+    let m = model.to_ascii_lowercase();
+    b.contains("deepseek") || m.starts_with("deepseek")
+}
+
+/// 从 Chat Completions JSON 取最终文案；空 content 时给出可操作提示。
+fn extract_chat_content(v: &serde_json::Value) -> Result<String, String> {
+    let choice = &v["choices"][0];
+    let msg = &choice["message"];
+    if let Some(s) = msg["content"].as_str().map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(s.to_string());
+    }
+    let finish = choice["finish_reason"].as_str().unwrap_or("");
+    let reasoned = msg["reasoning_content"]
         .as_str()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "API 返回空文案".to_string())?;
-    Ok(content)
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false);
+    if reasoned || finish == "length" {
+        return Err(
+            "API 返回空文案（思考占用了输出额度；请用 deepseek-chat，或确认已关闭 thinking）"
+                .into(),
+        );
+    }
+    Err("API 返回空文案".into())
 }
 
 /// 宠物右键：在光标处弹出与托盘一致的原生菜单（主线程执行，Windows 弹菜单要求）。
@@ -734,14 +789,12 @@ pub fn run() {
             let _ = window.show();
             let _ = window.set_focus();
 
-            // 系统托盘：显示 / 隐藏 / 监听会话 / 退出；左键单击切换显隐
+            // 系统托盘：专用简化头像（tray.png），与窗口/安装包主标同源但对比更强
             let menu = build_menu(&handle)?;
-            let icon = handle
-                .default_window_icon()
-                .cloned()
-                .expect("default window icon missing");
+            let tray_icon = Image::from_bytes(include_bytes!("../icons/tray.png"))
+                .expect("tray.png missing or invalid");
             let tray = TrayIconBuilder::with_id("main")
-                .icon(icon)
+                .icon(tray_icon)
                 .tooltip("Codex Pet")
                 .menu(&menu)
                 .on_tray_icon_event(|tray, event| {
@@ -790,7 +843,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod settings_tests {
-    use super::{pet_logical_size, pet_window_logical, skin_catalog, Settings, PET_CHROME_BOTTOM, PET_CHROME_TOP};
+    use super::{
+        copy_api_is_deepseek, extract_chat_content, pet_logical_size, pet_window_logical,
+        skin_catalog, Settings, PET_CHROME_BOTTOM, PET_CHROME_TOP,
+    };
 
     #[test]
     fn settings_default_copy_disabled() {
@@ -842,5 +898,29 @@ mod settings_tests {
         assert!(!s.copy_ai_terminal_only);
         assert!(s.connection_hints);
         assert_eq!(s.silence_hint_ms, 30 * 60_000);
+    }
+
+    #[test]
+    fn copy_api_detects_deepseek() {
+        assert!(copy_api_is_deepseek("https://api.deepseek.com/v1", "deepseek-v4-pro"));
+        assert!(copy_api_is_deepseek("https://example.com", "deepseek-chat"));
+        assert!(!copy_api_is_deepseek("https://api.openai.com/v1", "gpt-4o-mini"));
+    }
+
+    #[test]
+    fn extract_chat_content_ok_and_empty_reasoning() {
+        let ok = serde_json::json!({
+            "choices": [{ "message": { "content": " 搞定了 " }, "finish_reason": "stop" }]
+        });
+        assert_eq!(extract_chat_content(&ok).unwrap(), "搞定了");
+
+        let empty = serde_json::json!({
+            "choices": [{
+                "message": { "content": "", "reasoning_content": "thinking…" },
+                "finish_reason": "length"
+            }]
+        });
+        let err = extract_chat_content(&empty).unwrap_err();
+        assert!(err.contains("思考"));
     }
 }

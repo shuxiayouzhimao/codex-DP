@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PetState } from "./petState";
+import { PetState, shouldStealDisplay } from "./petState";
 import type { AgentState } from "./types";
 import type { AgentEventPayload } from "./events";
 import type { SessionMeta } from "./petState";
@@ -15,13 +15,41 @@ function ev(partial: Partial<AgentEventPayload> & { state: AgentState }): AgentE
   };
 }
 
+describe("shouldStealDisplay", () => {
+  it("同级 thinking 不抢工作态", () => {
+    expect(shouldStealDisplay("thinking", "thinking")).toBe(false);
+    expect(shouldStealDisplay("thinking", "streaming")).toBe(false);
+  });
+  it("更高优先级可抢工作态", () => {
+    expect(shouldStealDisplay("thinking", "tool-use")).toBe(true);
+    expect(shouldStealDisplay("thinking", "permission-prompt")).toBe(true);
+  });
+  it("终态/等待可抢；当前终态不被工作态盖", () => {
+    expect(shouldStealDisplay("thinking", "completed")).toBe(true);
+    expect(shouldStealDisplay("completed", "thinking")).toBe(false);
+    expect(shouldStealDisplay("completed", "streaming")).toBe(false);
+  });
+});
+
 describe("PetState", () => {
   let last: { state: AgentState; detail: string; meta: SessionMeta };
   let pet: PetState;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    last = { state: "idle", detail: "", meta: { count: 0, sources: [], lastKey: "", filtered: false } };
+    last = {
+      state: "idle",
+      detail: "",
+      meta: {
+        count: 0,
+        sources: [],
+        lastKey: "",
+        displayKey: "",
+        filtered: false,
+        lost: false,
+        quiet: false,
+      },
+    };
     pet = new PetState((state, detail, meta) => {
       last = { state, detail, meta };
     });
@@ -47,6 +75,19 @@ describe("PetState", () => {
     expect(last.state).toBe("completed");
     expect(last.detail).toBe("完成");
     expect(last.meta.count).toBe(2);
+
+    // 其它会话再刷 streaming 也不盖终态
+    pet.handleEvent(ev({ sessionId: "old", state: "streaming", detail: "还在吐" }));
+    expect(last.state).toBe("completed");
+  });
+
+  it("全部模式：同级 thinking 不抢当前展示会话", () => {
+    pet.handleEvent(ev({ source: "claude-code", sessionId: "a", state: "thinking" }));
+    expect(last.state).toBe("thinking");
+    pet.handleEvent(ev({ source: "cursor", sessionId: "default", state: "thinking" }));
+    expect(last.state).toBe("thinking");
+    expect(last.meta.displayKey).toBe("claude-code:a");
+    expect(last.meta.lastKey).toBe("cursor:default");
   });
 
   it("filters to a single session", () => {
@@ -54,12 +95,37 @@ describe("PetState", () => {
     pet.setFilter("mock:a");
     expect(last.state).toBe("thinking"); // 保留目标会话状态
     expect(last.meta.filtered).toBe(true);
+    expect(last.meta.lost).toBe(false);
 
     pet.handleEvent(ev({ sessionId: "a", state: "tool-use" }));
     expect(last.state).toBe("tool-use");
 
     pet.handleEvent(ev({ sessionId: "b", state: "error-interrupted" }));
     expect(last.state).toBe("tool-use"); // non-filter session ignored for display
+    expect(last.meta.ignoredHint).toBe("mock");
+  });
+
+  it("锁定失联：会话过期后 lost=true", () => {
+    pet.handleEvent(ev({ sessionId: "a", state: "thinking", project: "codex-DP" }));
+    pet.setFilter("mock:a");
+    pet.setOptions({ workDecayMs: 1000 });
+    vi.advanceTimersByTime(1000);
+    expect(last.state).toBe("idle");
+    expect(last.meta.filtered).toBe(true);
+    expect(last.meta.lost).toBe(true);
+  });
+
+  it("touchAlive 刷新 TTL 不改状态", () => {
+    pet.setOptions({ workDecayMs: 60_000 });
+    pet.handleEvent(ev({ sessionId: "a", state: "thinking" }));
+    expect(last.state).toBe("thinking");
+    vi.advanceTimersByTime(50_000);
+    pet.touchAlive("mock:a");
+    expect(last.state).toBe("thinking");
+    // 再过 50s：若未 touch 会在 60s 衰减；touch 后应仍保持（衰减计时未重置，但 session 未 prune）
+    // touchAlive 故意不重置 workDecay 计时——只防 SESSION_TTL prune
+    vi.advanceTimersByTime(10_000);
+    expect(last.state).toBe("idle");
   });
 
   it("toIdle in filter mode only clears the locked session", () => {

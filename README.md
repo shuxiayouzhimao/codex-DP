@@ -5,7 +5,7 @@ Windows 桌面宠物：实时反映编程 Agent（Claude Code / Codex CLI / Curs
 **技术栈**：Tauri 2（Rust）+ Svelte 5 + Vite 6 + TypeScript。常驻内存 ~37MB。  
 **许可**：MIT（见 `LICENSE`）。贡献约定见 `AGENTS.md`。
 
-![skins](docs/skins.png)
+![Codex Pet](src/assets/brand/mark-128.png)
 
 ## 功能
 
@@ -13,7 +13,7 @@ Windows 桌面宠物：实时反映编程 Agent（Claude Code / Codex CLI / Curs
 - 🎞️ **序列帧动画皮肤「绿毛衣·动画」**：AI 生成视频 → 抽帧精灵表（`tools/video_frames.py`），**7 状态专属序列**——三段式（入场→循环→出场，如齿轮/道具随状态生灭）、once（成功欢呼定格）、pingpong（输出中）；动作连贯性由视频保证 | MIT 无授权风险
 - ⚡ **实时状态联动**：8 种 Agent 状态 → 7 种动画（呼吸/摇摆/倾斜/弹跳/抖动…）+ 气泡文案
 - 🤖 **多 Agent 通用**：Claude Code（主）、Codex CLI、Cursor，一份统一事件协议。Cursor **无统一审批粒度**（仅 shell/MCP 前置观察）；三源均无可靠逐字 streaming hook，该动画仅素材+规则，不装假状态
-- 🎯 **会话选择**：托盘/右键 →「监听会话」锁定某个对话（`项目名·会话短id`），默认聚合全部
+- 🎯 **会话选择**：托盘/右键 →「监听会话」锁定某个对话（`来源·项目` / `来源·项目_1`），默认聚合全部
 - 💾 **状态持久化**：工作态 5min 衰减防掉线；等待审批不衰减；完成/出错保持到点击确认（可配）
 - 🖱️ **交互**：整窗拖拽（位置记忆）、点击消散终态、右键原生菜单（换肤/监听/重置位置/自启/设置）、三档缩放
 - ⚙️ **配置面板**：皮肤与大小、Agent hooks 安装/诊断、会话轻列表、终态提醒（含任务栏闪烁）、连接提示、衰减、智能文案、开机自启
@@ -53,7 +53,7 @@ src/                 前端（App.svelte 宠物窗 + config/ 配置窗）
 src-tauri/src/
   lib.rs             窗口/托盘/菜单/设置/settings.json/自启/命令
   server.rs          HTTP POST 事件通道（4271）
-  state_machine.rs   事件路由、去重、会话跟踪（90s TTL）
+  state_machine.rs   事件路由、去重、会话跟踪（180s TTL）
 adapters/            各 Agent 的 hooks 安装器；共享 pet-bridge + `lib/event-map.mjs`（--source 区分来源）
 tools/cutout.py      白底设计图 → 透明精灵（Pillow+scipy 边缘泛洪，不打穿白衣）
 tools/video_frames.py 白底角色视频 → 透明序列帧精灵表（抽帧/去背/并集裁剪/循环段检测/网格打包）

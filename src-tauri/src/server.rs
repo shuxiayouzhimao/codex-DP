@@ -1,7 +1,7 @@
 use tauri::{AppHandle, Emitter, Manager};
 use tiny_http::{Method, Response, Server, StatusCode};
 
-use crate::state_machine::AgentEvent;
+use crate::state_machine::{AgentEvent, RouteOutcome};
 use crate::{refresh_menu, AppState};
 
 /// Phase 3：本地事件推送通道。
@@ -52,16 +52,21 @@ pub fn start(app: AppHandle, port: u16) {
                         ev.detail.clone().unwrap_or_default()
                     );
                     match router.route(ev) {
-                        Some(ev) => {
+                        RouteOutcome::Forward(ev) => {
                             println!("[pet-event] FWD {desc}");
                             let _ = app.emit("agent-event", &ev);
                             // 会话列表可能有新条目/过期，刷新托盘"监听会话"菜单
                             refresh_menu(&app);
                             Response::from_string("ok").with_status_code(StatusCode(200))
                         }
-                        None => {
+                        RouteOutcome::Alive(alive) => {
                             println!("[pet-event] dup {desc}");
+                            // 不改动画，只刷新前端会话 TTL
+                            let _ = app.emit("session-alive", &alive);
                             Response::from_string("dup").with_status_code(StatusCode(200))
+                        }
+                        RouteOutcome::Drop => {
+                            Response::from_string("drop").with_status_code(StatusCode(200))
                         }
                     }
                 }

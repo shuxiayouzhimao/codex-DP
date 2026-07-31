@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Codex Pet",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "identifier": "com.codex.pet",
   "build": {
     "frontendDist": "../dist",
@@ -28,14 +28,17 @@
         "label": "config",
         "title": "Codex Pet 设置",
         "url": "/config.html",
-        "width": 440,
-        "height": 820,
+        "width": 720,
+        "height": 560,
+        "minWidth": 560,
+        "minHeight": 420,
         "decorations": true,
         "transparent": false,
         "alwaysOnTop": false,
         "resizable": true,
         "skipTaskbar": false,
-        "visible": false
+        "visible": false,
+        "center": true
       }
     ],
     "security": {

@@ -8,6 +8,7 @@
   import type { HooksStatus } from "../lib/hooks-status";
   import type { SessionListEntry } from "../lib/session-list";
   import { listSkinOptions } from "../lib/skins";
+  import brandMark from "../assets/brand/mark-128.png";
 
   const SKINS = listSkinOptions();
   const HOLD_PRESETS = [
@@ -68,6 +69,9 @@
     await invoke("set_session_filter", { key });
     await refreshSessions();
   }
+
+  $: filterLost =
+    sessionFilter !== null && !sessions.some((s) => s.key === sessionFilter);
 
   function errText(e: unknown): string {
     if (typeof e === "string") return e;
@@ -182,66 +186,86 @@
 </script>
 
 <main>
-  <h1>Codex Pet 设置</h1>
+  <header class="top">
+    <div class="brand">
+      <img class="mark" src={brandMark} width="40" height="40" alt="" />
+      <div>
+        <h1>Codex Pet</h1>
+        <p class="tagline">设置 · 外观、连接与行为</p>
+      </div>
+    </div>
+  </header>
 
   {#if settings}
     <section>
-      <h2>Agent 连接</h2>
-      <p class="hint">
-        一键安装 hooks，让 Claude Code / Codex / Cursor 把状态推到桌宠。需要本机已装 Node.js。
-        Cursor 点「Run」依赖 beforeShellExecution / beforeMCPExecution（安装后才有）；无统一审批 hook，不能代点批准。streaming 仅素材+规则。校准用 PET_DEBUG=1。
-      </p>
-      {#if hooks}
-        <p class="meta">
-          Node：{hooks.nodeOk ? hooks.nodeVersion : "未找到"}
-          · adapters：{hooks.adaptersOk ? "就绪" : "缺失"}
+      <div class="section-head">
+        <h2>Agent 连接</h2>
+        <p class="hint">
+          一键安装 hooks，把 Claude / Codex / Cursor 状态推到桌宠。需本机 Node.js。Cursor「Run」依赖
+          beforeShell；streaming 仅素材+规则。
         </p>
+      </div>
+      {#if hooks}
+        <div class="status-bar">
+          <span class="pill" class:ok={hooks.nodeOk} class:bad={!hooks.nodeOk}
+            >Node {hooks.nodeOk ? hooks.nodeVersion : "未找到"}</span
+          >
+          <span class="pill" class:ok={hooks.adaptersOk} class:bad={!hooks.adaptersOk}
+            >adapters {hooks.adaptersOk ? "就绪" : "缺失"}</span
+          >
+        </div>
         {#if !hooks.nodeOk}
-          <p class="warn-hint">未检测到 Node.js，无法安装 hooks。请先安装 Node 并确保 `node` 在 PATH 中。</p>
+          <p class="warn-hint">未检测到 Node.js，无法安装 hooks。请先安装并确保 `node` 在 PATH 中。</p>
         {/if}
         {#if !hooks.adaptersOk}
           <p class="warn-hint">找不到 adapters（安装版应随包带入）。请重装桌宠，或在仓库根目录跑开发版。</p>
         {/if}
-        {#each hooks.sources as s}
-          <div class="agent-block">
-            <div class="agent-row">
-              <span
-                class="dot"
-                class:on={s.installed && !s.needsUpdate}
-                class:warn={s.installed && s.needsUpdate}
-                title={s.configPath}
-              ></span>
-              <span class="agent-name">{s.label}</span>
-              <span class="agent-state">
-                {#if !s.installed}
-                  未安装
-                {:else if s.needsUpdate}
-                  需更新
-                {:else}
-                  已安装
-                {/if}
-              </span>
-              <button
-                class="chip"
-                class:accent={s.needsUpdate}
-                disabled={hooksBusy !== ""}
-                onclick={() => void doInstall(s.source, false)}
-                >{hooksBusy === s.source + ":on" ? "…" : s.needsUpdate ? "补装" : "安装"}</button
-              >
-              <button
-                class="chip"
-                disabled={hooksBusy !== "" || !s.installed}
-                onclick={() => void doInstall(s.source, true)}
-                >{hooksBusy === s.source + ":off" ? "…" : "卸载"}</button
-              >
+        <div class="agent-list">
+          {#each hooks.sources as s}
+            <div class="agent-card">
+              <div class="agent-row">
+                <span
+                  class="dot"
+                  class:on={s.installed && !s.needsUpdate}
+                  class:warn={s.installed && s.needsUpdate}
+                  title={s.configPath}
+                ></span>
+                <div class="agent-text">
+                  <span class="agent-name">{s.label}</span>
+                  <span class="agent-state">
+                    {#if !s.installed}
+                      未安装
+                    {:else if s.needsUpdate}
+                      需更新
+                    {:else}
+                      已安装
+                    {/if}
+                  </span>
+                </div>
+                <div class="agent-actions">
+                  <button
+                    class="chip"
+                    class:accent={s.needsUpdate}
+                    disabled={hooksBusy !== ""}
+                    onclick={() => void doInstall(s.source, false)}
+                    >{hooksBusy === s.source + ":on" ? "…" : s.needsUpdate ? "补装" : "安装"}</button
+                  >
+                  <button
+                    class="chip ghost"
+                    disabled={hooksBusy !== "" || !s.installed}
+                    onclick={() => void doInstall(s.source, true)}
+                    >{hooksBusy === s.source + ":off" ? "…" : "卸载"}</button
+                  >
+                </div>
+              </div>
+              {#if s.needsUpdate && s.missingHint}
+                <p class="warn-hint nested">{s.missingHint}</p>
+              {/if}
             </div>
-            {#if s.needsUpdate && s.missingHint}
-              <p class="warn-hint">{s.missingHint}</p>
-            {/if}
-          </div>
-        {/each}
+          {/each}
+        </div>
         <div class="sub">
-          <button class="chip" disabled={hooksBusy !== ""} onclick={() => void refreshHooks()}
+          <button class="chip ghost" disabled={hooksBusy !== ""} onclick={() => void refreshHooks()}
             >刷新状态</button
           >
           <button class="chip" disabled={hooksBusy !== ""} onclick={() => void doProbe()}
@@ -260,7 +284,10 @@
     </section>
 
     <section>
-      <h2>皮肤</h2>
+      <div class="section-head">
+        <h2>外观</h2>
+        <p class="hint">皮肤与桌宠大小；重置位置回到主屏右下。</p>
+      </div>
       <div class="skins">
         {#each SKINS as s}
           <button
@@ -268,125 +295,164 @@
             class:active={settings.skin === s.key}
             onclick={() => update({ skin: s.key })}
           >
-            <img src={s.url} alt={s.name} />
-            <span>{s.name}</span>
+            <span class="skin-frame">
+              <img src={s.url} alt="" />
+            </span>
+            <span class="skin-name">{s.name}</span>
           </button>
         {/each}
       </div>
-      <div class="sub">
-        大小：
-        {#each SCALE_PRESETS as p}
-          <button
-            class="chip"
-            class:active={scaleActive(p.scale)}
-            onclick={() => update({ petScale: p.scale })}>{p.label}</button
-          >
-        {/each}
-        <button class="chip" onclick={() => void resetPosition()}>重置位置</button>
+      <div class="sub labeled">
+        <span class="sub-label">大小</span>
+        <div class="seg">
+          {#each SCALE_PRESETS as p}
+            <button
+              class="seg-btn"
+              class:active={scaleActive(p.scale)}
+              onclick={() => update({ petScale: p.scale })}>{p.label}</button
+            >
+          {/each}
+        </div>
+        <button class="chip ghost" onclick={() => void resetPosition()}>重置位置</button>
       </div>
     </section>
 
     <section>
-      <h2>监听会话</h2>
-      <p class="hint">点选只听某一个对话；与托盘「监听会话」同步。列表约 90 秒无事件会消失。</p>
+      <div class="section-head">
+        <h2>监听会话</h2>
+        <p class="hint">点选只听某一个对话；与托盘同步。约 180 秒无事件会从列表消失。</p>
+      </div>
       <div class="sub">
         <button
           class="chip"
           class:active={sessionFilter === null}
           onclick={() => void pickSession(null)}>全部会话</button
         >
-        <button class="chip" onclick={() => void refreshSessions()}>刷新</button>
+        <button class="chip ghost" onclick={() => void refreshSessions()}>刷新</button>
       </div>
+      {#if filterLost}
+        <div class="sess-lost">
+          <p>锁定的会话已失联（约 180 秒无事件）。桌宠不会跟其它对话。</p>
+          <button class="chip" onclick={() => void pickSession(null)}>回全部会话</button>
+        </div>
+      {/if}
       {#if sessions.length === 0}
-        <p class="hint">暂无活跃会话（在 Agent 里操作一下就会出现）</p>
+        <p class="empty">暂无活跃会话 — 在 Agent 里操作一下就会出现</p>
       {:else}
-        {#each sessions as s}
-          <button
-            class="sess-row"
-            class:active={sessionFilter === s.key}
-            onclick={() => void pickSession(s.key)}
-          >
-            <span class="sess-dot" data-state={s.state}></span>
-            <span class="sess-label">{s.label}</span>
-            <span class="sess-state">{s.state}</span>
-          </button>
-        {/each}
+        <div class="sess-list">
+          {#each sessions as s}
+            <button
+              class="sess-row"
+              class:active={sessionFilter === s.key}
+              onclick={() => void pickSession(s.key)}
+              title={s.shortId ? `${s.key}` : s.label}
+            >
+              <span class="sess-dot" data-state={s.state}></span>
+              <span class="sess-main">
+                <span class="sess-label">{s.label}</span>
+                {#if s.shortId}
+                  <span class="sess-sid">{s.shortId}</span>
+                {/if}
+              </span>
+              <span class="sess-state">{s.state}</span>
+            </button>
+          {/each}
+        </div>
       {/if}
     </section>
 
     <section>
-      <h2>完成 / 出错提醒</h2>
-      <label class="row">
-        <input
-          type="radio"
-          name="dismiss"
-          checked={settings.clickToDismiss}
-          onchange={() => update({ clickToDismiss: true })}
-        />
-        保持显示，点击桌宠确认后消失
-      </label>
-      <label class="row">
-        <input
-          type="radio"
-          name="dismiss"
-          checked={!settings.clickToDismiss}
-          onchange={() => update({ clickToDismiss: false })}
-        />
-        显示 5 秒后自动消失
-      </label>
-      <label class="row">
+      <div class="section-head">
+        <h2>完成 / 出错</h2>
+        <p class="hint">终态如何消失，以及是否闪任务栏、连接提示。</p>
+      </div>
+      <div class="choice-group">
+        <label class="choice">
+          <input
+            type="radio"
+            name="dismiss"
+            checked={settings.clickToDismiss}
+            onchange={() => update({ clickToDismiss: true })}
+          />
+          <span class="choice-body">
+            <strong>保持显示</strong>
+            <small>点击桌宠确认后消失</small>
+          </span>
+        </label>
+        <label class="choice">
+          <input
+            type="radio"
+            name="dismiss"
+            checked={!settings.clickToDismiss}
+            onchange={() => update({ clickToDismiss: false })}
+          />
+          <span class="choice-body">
+            <strong>自动消失</strong>
+            <small>约 5 秒后回闲置</small>
+          </span>
+        </label>
+      </div>
+      <label class="toggle">
         <input
           type="checkbox"
           checked={settings.terminalNotify !== false}
           onchange={(e) => update({ terminalNotify: e.currentTarget.checked })}
         />
-        进入完成/出错时闪烁任务栏提醒
+        <span class="switch" aria-hidden="true"></span>
+        <span class="toggle-text">进入完成/出错时闪烁任务栏</span>
       </label>
-      <label class="row">
+      <label class="toggle">
         <input
           type="checkbox"
           checked={settings.connectionHints !== false}
           onchange={(e) => update({ connectionHints: e.currentTarget.checked })}
         />
-        连接提示（久无事件 / hooks 需补装）
+        <span class="switch" aria-hidden="true"></span>
+        <span class="toggle-text">连接提示（久无事件 / hooks 需补装）</span>
       </label>
       {#if settings.connectionHints !== false}
-        <div class="sub">
-          无事件多久提示：
-          {#each [
-            { ms: 15 * 60_000, label: "15 分钟" },
-            { ms: 30 * 60_000, label: "30 分钟" },
-            { ms: 60 * 60_000, label: "1 小时" },
-          ] as p}
-            <button
-              class="chip"
-              class:active={(settings.silenceHintMs || 30 * 60_000) === p.ms}
-              onclick={() => update({ silenceHintMs: p.ms })}>{p.label}</button
-            >
-          {/each}
+        <div class="sub labeled">
+          <span class="sub-label">静默多久提示</span>
+          <div class="seg">
+            {#each [
+              { ms: 15 * 60_000, label: "15 分" },
+              { ms: 30 * 60_000, label: "30 分" },
+              { ms: 60 * 60_000, label: "1 小时" },
+            ] as p}
+              <button
+                class="seg-btn"
+                class:active={(settings.silenceHintMs || 30 * 60_000) === p.ms}
+                onclick={() => update({ silenceHintMs: p.ms })}>{p.label}</button
+              >
+            {/each}
+          </div>
         </div>
       {/if}
       {#if settings.clickToDismiss}
-        <div class="sub">
-          兜底时长（超时自动消失）：
-          {#each HOLD_PRESETS as p}
-            <button
-              class="chip"
-              class:active={settings.terminalHoldMs === p.ms}
-              onclick={() => update({ terminalHoldMs: p.ms })}>{p.label}</button
-            >
-          {/each}
+        <div class="sub labeled">
+          <span class="sub-label">兜底时长</span>
+          <div class="seg">
+            {#each HOLD_PRESETS as p}
+              <button
+                class="seg-btn"
+                class:active={settings.terminalHoldMs === p.ms}
+                onclick={() => update({ terminalHoldMs: p.ms })}>{p.label}</button
+              >
+            {/each}
+          </div>
         </div>
       {/if}
     </section>
 
     <section>
-      <h2>工作状态衰减</h2>
-      <p class="hint">思考 / 执行中若长时间没有新事件，多久后回到闲置（防卡死）。</p>
-      <div class="sub">
+      <div class="section-head">
+        <h2>工作状态衰减</h2>
+        <p class="hint">思考 / 执行中若长时间没有新事件，多久后回到闲置。</p>
+      </div>
+      <div class="seg full">
         {#each DECAY_PRESETS as p}
           <button
-            class="chip"
+            class="seg-btn"
             class:active={settings.workDecayMs === p.ms}
             onclick={() => update({ workDecayMs: p.ms })}>{p.label}</button
           >
@@ -395,41 +461,46 @@
     </section>
 
     <section>
-      <h2>智能文案</h2>
-      <p class="hint">
-        给气泡加人格短句，终态生成一句话摘要。默认关闭；失败时回退原来的工具/状态文案。API Key
-        仅存本机，不会打进日志。
-      </p>
-      <label class="row">
+      <div class="section-head">
+        <h2>智能文案</h2>
+        <p class="hint">
+          气泡人格短句与终态摘要。默认关；失败回退原 tip。Key 仅存本机。
+        </p>
+      </div>
+      <label class="toggle">
         <input
           type="checkbox"
           checked={settings.copyEnabled}
           onchange={(e) => update({ copyEnabled: e.currentTarget.checked })}
         />
-        启用智能文案
+        <span class="switch" aria-hidden="true"></span>
+        <span class="toggle-text">启用智能文案</span>
       </label>
       {#if settings.copyEnabled}
-        <div class="sub">
-          模式：
-          <button
-            class="chip"
-            class:active={settings.copyProvider === "rules"}
-            onclick={() => update({ copyProvider: "rules" })}>规则模板</button
-          >
-          <button
-            class="chip"
-            class:active={settings.copyProvider === "openai"}
-            onclick={() => update({ copyProvider: "openai" })}>OpenAI 兼容</button
-          >
+        <div class="sub labeled">
+          <span class="sub-label">模式</span>
+          <div class="seg">
+            <button
+              class="seg-btn"
+              class:active={settings.copyProvider === "rules"}
+              onclick={() => update({ copyProvider: "rules" })}>规则模板</button
+            >
+            <button
+              class="seg-btn"
+              class:active={settings.copyProvider === "openai"}
+              onclick={() => update({ copyProvider: "openai" })}>OpenAI 兼容</button
+            >
+          </div>
         </div>
         {#if settings.copyProvider === "openai"}
-          <label class="row">
+          <label class="toggle">
             <input
               type="checkbox"
               checked={settings.copyAiTerminalOnly === true}
               onchange={(e) => update({ copyAiTerminalOnly: e.currentTarget.checked })}
             />
-            仅终态走 API（工作态用规则模板，省调用）
+            <span class="switch" aria-hidden="true"></span>
+            <span class="toggle-text">仅终态走 API（工作态用规则）</span>
           </label>
           <label class="field">
             <span>Base URL</span>
@@ -477,206 +548,534 @@
     </section>
 
     <section>
-      <h2>系统</h2>
-      <label class="row">
+      <div class="section-head">
+        <h2>系统</h2>
+      </div>
+      <label class="toggle">
         <input
           type="checkbox"
           checked={settings.autostart}
           onchange={(e) => update({ autostart: e.currentTarget.checked })}
         />
-        开机自启（登录 Windows 后自动运行）
+        <span class="switch" aria-hidden="true"></span>
+        <span class="toggle-text">开机自启</span>
       </label>
     </section>
   {:else}
-    <p>加载中…</p>
+    <p class="empty">加载中…</p>
   {/if}
 </main>
 
 <style>
+  :global(html),
   :global(body) {
     margin: 0;
-    font: 14px/1.6 system-ui, sans-serif;
-    color: #1f2937;
-    background: #f8fafc;
+    min-height: 100%;
   }
+  :global(html) {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  :global(html::-webkit-scrollbar) {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+  :global(body) {
+    font-family: "Plus Jakarta Sans", "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
+    font-weight: 450;
+    color: var(--ink);
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    background:
+      radial-gradient(120% 80% at 100% -10%, rgba(13, 148, 136, 0.14), transparent 55%),
+      radial-gradient(90% 60% at -10% 40%, rgba(56, 189, 248, 0.1), transparent 50%),
+      linear-gradient(165deg, #eef3f7 0%, #e8eef4 48%, #e4ebe8 100%);
+    background-attachment: fixed;
+  }
+  :global(body::-webkit-scrollbar) {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+  :global(#app) {
+    --ink: #0f1c24;
+    --muted: #5b6b76;
+    --line: rgba(15, 28, 36, 0.08);
+    --card: rgba(255, 255, 255, 0.78);
+    --card-solid: #ffffff;
+    --accent: #0f766e;
+    --accent-strong: #0d9488;
+    --accent-soft: rgba(13, 148, 136, 0.12);
+    --warn: #b45309;
+    --warn-bg: #fff8eb;
+    --danger: #b91c1c;
+    --danger-bg: #fef2f2;
+    --ok: #16a34a;
+    --radius: 16px;
+    --shadow: 0 1px 0 rgba(255, 255, 255, 0.7) inset, 0 10px 28px rgba(15, 28, 36, 0.06);
+  }
+
   main {
-    padding: 20px 24px 28px;
+    padding: 0 28px 36px;
+    max-width: 640px;
+    margin: 0 auto;
+  }
+
+  .top {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 18px 0 14px;
+    margin: 0 -4px 4px;
+    background: linear-gradient(180deg, rgba(238, 243, 247, 0.96) 40%, rgba(238, 243, 247, 0));
+    backdrop-filter: blur(8px);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .mark {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    object-fit: cover;
+    background: #0f766e;
+    box-shadow: 0 6px 16px rgba(13, 148, 136, 0.28);
+    flex-shrink: 0;
   }
   h1 {
-    font-size: 18px;
-    margin: 0 0 16px;
+    font-size: 22px;
+    font-weight: 750;
+    letter-spacing: -0.03em;
+    margin: 0;
+    line-height: 1.15;
+  }
+  .tagline {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 450;
+  }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 16px 16px 14px;
+    margin-bottom: 12px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(12px);
+  }
+  .section-head {
+    margin-bottom: 12px;
   }
   h2 {
-    font-size: 14px;
-    margin: 0 0 10px;
-    color: #334155;
+    font-size: 13px;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    text-transform: none;
+    margin: 0 0 4px;
+    color: var(--ink);
   }
-  section {
-    background: #fff;
-    border: 1px solid #e2e8f0;
-    border-radius: 10px;
-    padding: 14px 16px;
-    margin-bottom: 14px;
+  .hint {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
   }
-  .skins {
+
+  .status-bar {
     display: flex;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .pill {
+    font-size: 11px;
+    font-weight: 550;
+    padding: 3px 9px;
+    border-radius: 999px;
+    background: rgba(15, 28, 36, 0.05);
+    color: var(--muted);
+  }
+  .pill.ok {
+    background: rgba(22, 163, 74, 0.12);
+    color: #15803d;
+  }
+  .pill.bad {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warn);
+  }
+
+  .agent-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .agent-card {
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.65);
+    border: 1px solid var(--line);
+  }
+  .agent-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .agent-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .agent-name {
+    font-weight: 650;
+    font-size: 13px;
+  }
+  .agent-state {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .agent-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #cbd5e1;
+    flex-shrink: 0;
+    box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.15);
+  }
+  .dot.on {
+    background: var(--ok);
+    box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+  }
+  .dot.warn {
+    background: #f59e0b;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.2);
+  }
+  .warn-hint {
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    background: var(--warn-bg);
+    border-radius: 10px;
+    color: var(--warn);
+    font-size: 12px;
+    line-height: 1.45;
+    border: 1px solid rgba(180, 83, 9, 0.12);
+  }
+  .warn-hint.nested {
+    margin-left: 0;
+  }
+
+  .skins {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
   }
   .skin {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 10px 14px;
-    border: 2px solid #e2e8f0;
-    border-radius: 10px;
-    background: #fff;
+    align-items: stretch;
+    gap: 8px;
+    padding: 8px;
+    border: 1.5px solid var(--line);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.7);
     cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+  }
+  .skin:hover {
+    border-color: rgba(15, 118, 110, 0.35);
+    transform: translateY(-1px);
   }
   .skin.active {
-    border-color: #4f7df9;
-    background: #eff4ff;
+    border-color: var(--accent-strong);
+    background: var(--accent-soft);
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.18);
   }
-  .skin img {
-    height: 96px;
-  }
-  .row {
+  .skin-frame {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 3px 0;
-    cursor: pointer;
+    justify-content: center;
+    height: 88px;
+    border-radius: 10px;
+    background: linear-gradient(180deg, #f8fafc, #eef2f6);
+    overflow: hidden;
   }
+  .skin img {
+    height: 80px;
+    object-fit: contain;
+  }
+  .skin-name {
+    font-size: 12px;
+    font-weight: 550;
+    text-align: center;
+    color: var(--ink);
+  }
+
   .sub {
     display: flex;
     align-items: center;
     gap: 8px;
     flex-wrap: wrap;
-    margin-top: 8px;
-    color: #475569;
+    margin-top: 12px;
+    color: var(--muted);
   }
-  .chip {
-    padding: 3px 12px;
-    border: 1px solid #cbd5e1;
-    border-radius: 999px;
-    background: #fff;
+  .sub.labeled {
+    align-items: center;
+  }
+  .sub-label {
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--muted);
+    min-width: 4.5em;
+  }
+
+  .seg {
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 10px;
+    background: rgba(15, 28, 36, 0.06);
+    gap: 2px;
+  }
+  .seg.full {
+    display: flex;
+    width: 100%;
+    margin-top: 0;
+  }
+  .seg.full .seg-btn {
+    flex: 1;
+  }
+  .seg-btn {
+    border: 0;
+    background: transparent;
+    padding: 5px 12px;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 550;
+    color: var(--muted);
     cursor: pointer;
   }
+  .seg-btn.active {
+    background: var(--card-solid);
+    color: var(--accent);
+    box-shadow: 0 1px 3px rgba(15, 28, 36, 0.08);
+  }
+
+  .chip {
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--card-solid);
+    color: var(--ink);
+    cursor: pointer;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 550;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+  .chip:hover:not(:disabled) {
+    border-color: rgba(15, 118, 110, 0.35);
+  }
   .chip:disabled {
-    opacity: 0.6;
+    opacity: 0.55;
     cursor: default;
   }
   .chip.active {
-    border-color: #4f7df9;
-    background: #4f7df9;
+    border-color: transparent;
+    background: var(--accent-strong);
     color: #fff;
   }
-  .hint {
-    margin: 0 0 6px;
-    color: #64748b;
-    font-size: 12px;
+  .chip.ghost {
+    background: transparent;
   }
+  .chip.accent {
+    border-color: rgba(245, 158, 11, 0.45);
+    color: var(--warn);
+    background: var(--warn-bg);
+  }
+
+  .choice-group {
+    display: grid;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1.5px solid var(--line);
+    background: rgba(255, 255, 255, 0.65);
+    cursor: pointer;
+  }
+  .choice:has(input:checked) {
+    border-color: var(--accent-strong);
+    background: var(--accent-soft);
+  }
+  .choice input {
+    margin-top: 3px;
+    accent-color: var(--accent-strong);
+  }
+  .choice-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .choice-body strong {
+    font-size: 13px;
+    font-weight: 650;
+  }
+  .choice-body small {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 0;
+    cursor: pointer;
+    user-select: none;
+  }
+  .toggle input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+  .switch {
+    width: 36px;
+    height: 20px;
+    border-radius: 999px;
+    background: #cbd5e1;
+    position: relative;
+    flex-shrink: 0;
+    transition: background 0.15s ease;
+  }
+  .switch::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+    transition: transform 0.15s ease;
+  }
+  .toggle input:checked + .switch {
+    background: var(--accent-strong);
+  }
+  .toggle input:checked + .switch::after {
+    transform: translateX(16px);
+  }
+  .toggle input:focus-visible + .switch {
+    outline: 2px solid var(--accent-strong);
+    outline-offset: 2px;
+  }
+  .toggle-text {
+    font-size: 13px;
+    font-weight: 500;
+  }
+
   .field {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 5px;
     margin-top: 10px;
     font-size: 12px;
-    color: #475569;
+    font-weight: 550;
+    color: var(--muted);
   }
   .field input {
-    padding: 6px 10px;
-    border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    font: 13px/1.4 system-ui, sans-serif;
-  }
-  .preview {
-    margin: 8px 0 0;
-    padding: 6px 10px;
-    background: #eff6ff;
-    border-radius: 8px;
-    color: #1e40af;
+    padding: 9px 12px;
+    border: 1.5px solid var(--line);
+    border-radius: 10px;
+    font: inherit;
     font-size: 13px;
+    font-weight: 450;
+    color: var(--ink);
+    background: rgba(255, 255, 255, 0.9);
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  }
+  .field input:focus {
+    outline: none;
+    border-color: var(--accent-strong);
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.15);
+  }
+  .field input::placeholder {
+    color: #94a3b8;
+  }
+
+  .preview {
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    background: var(--accent-soft);
+    border-radius: 10px;
+    color: var(--accent);
+    font-size: 13px;
+    border: 1px solid rgba(13, 148, 136, 0.15);
   }
   .err {
-    margin: 8px 0 0;
-    padding: 6px 10px;
-    background: #fef2f2;
-    border-radius: 8px;
-    color: #b91c1c;
+    margin: 10px 0 0;
+    padding: 8px 12px;
+    background: var(--danger-bg);
+    border-radius: 10px;
+    color: var(--danger);
     font-size: 12px;
+    border: 1px solid rgba(185, 28, 28, 0.12);
   }
-  .meta {
-    margin: 0 0 8px;
+  .empty {
+    margin: 10px 0 0;
+    padding: 14px;
+    text-align: center;
+    color: var(--muted);
     font-size: 12px;
-    color: #64748b;
+    border-radius: 12px;
+    background: rgba(15, 28, 36, 0.03);
+    border: 1px dashed var(--line);
   }
-  .agent-block {
-    padding: 4px 0 8px;
-    border-bottom: 1px solid #f1f5f9;
-  }
-  .agent-block:last-of-type {
-    border-bottom: none;
-    padding-bottom: 0;
-  }
-  .agent-row {
+
+  .sess-list {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 0 0;
-  }
-  .dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #cbd5e1;
-    flex-shrink: 0;
-  }
-  .dot.on {
-    background: #22c55e;
-  }
-  .dot.warn {
-    background: #f59e0b;
-  }
-  .warn-hint {
-    margin: 4px 0 0 16px;
-    padding: 6px 10px;
-    background: #fffbeb;
-    border-radius: 8px;
-    color: #b45309;
-    font-size: 12px;
-    line-height: 1.4;
-  }
-  .chip.accent {
-    border-color: #f59e0b;
-    color: #b45309;
-    background: #fffbeb;
-  }
-  .agent-name {
-    font-weight: 600;
-    min-width: 96px;
-  }
-  .agent-state {
-    flex: 1;
-    font-size: 12px;
-    color: #64748b;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 10px;
   }
   .sess-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     width: 100%;
-    margin-top: 6px;
-    padding: 8px 10px;
-    border: 1px solid #e2e8f0;
-    border-radius: 8px;
-    background: #fff;
+    padding: 10px 12px;
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.7);
     cursor: pointer;
     text-align: left;
+    font: inherit;
+    transition: border-color 0.12s ease, background 0.12s ease;
+  }
+  .sess-row:hover {
+    border-color: rgba(15, 118, 110, 0.3);
   }
   .sess-row.active {
-    border-color: #4f7df9;
-    background: #eff4ff;
+    border-color: var(--accent-strong);
+    background: var(--accent-soft);
   }
   .sess-dot {
     width: 8px;
@@ -688,10 +1087,10 @@
   .sess-dot[data-state="thinking"],
   .sess-dot[data-state="tool-use"],
   .sess-dot[data-state="streaming"] {
-    background: #3b82f6;
+    background: #0ea5e9;
   }
   .sess-dot[data-state="completed"] {
-    background: #22c55e;
+    background: var(--ok);
   }
   .sess-dot[data-state="error-interrupted"] {
     background: #ef4444;
@@ -700,12 +1099,42 @@
   .sess-dot[data-state="ask-user"] {
     background: #f59e0b;
   }
-  .sess-label {
+  .sess-main {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .sess-label {
     font-size: 13px;
+    font-weight: 550;
+  }
+  .sess-sid {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, monospace;
   }
   .sess-state {
     font-size: 11px;
-    color: #64748b;
+    color: var(--muted);
+  }
+  .sess-lost {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1.5px solid rgba(180, 83, 9, 0.35);
+    background: rgba(255, 247, 237, 0.95);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .sess-lost p {
+    margin: 0;
+    flex: 1;
+    font-size: 12px;
+    color: #9a3412;
+    line-height: 1.45;
   }
 </style>

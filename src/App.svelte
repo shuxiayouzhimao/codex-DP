@@ -5,7 +5,7 @@
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { PetRenderer } from "./lib/renderer";
   import { STATE_MAP, animFor } from "./lib/state-machine";
-  import { startEventBridge, listenSessionFilter } from "./lib/events";
+  import { startEventBridge, listenSessionFilter, listenSessionAlive } from "./lib/events";
   import { checkForUpdates } from "./lib/updater";
   import { PetState, type SessionMeta } from "./lib/petState";
   import { CopyQueue } from "./lib/copy/queue";
@@ -28,6 +28,8 @@
   let aiCopy = "";
   let sessionInfo = "";
   let sessionFiltered = false;
+  let sessionLost = false;
+  let sessionQuiet = false;
   let clickToDismiss = true;
   let terminalNotify = true;
   let showOnboarding = false;
@@ -37,6 +39,7 @@
   let prevForNotify: AgentState = "idle";
   let unlisten: UnlistenFn | undefined;
   let unlistenFilter: UnlistenFn | undefined;
+  let unlistenAlive: UnlistenFn | undefined;
   let unlistenSettings: UnlistenFn | undefined;
   let petState: PetState | null = null;
   let copyQueue: CopyQueue | null = null;
@@ -59,10 +62,8 @@
   $: isTerminal = current === "completed" || current === "error-interrupted";
   $: isError = current === "error-interrupted";
   $: hintText = hintKind ? connectionHintText(hintKind) : "";
-  // AI 文案优先；失败/关闭回退 detail||label；终态由 UI 追加「点击消散」；连接提示覆盖 idle
-  $: bubbleText = hintText
-    ? hintText
-    : (aiCopy || detail || label) + (isTerminal && clickToDismiss ? " · 点击消散" : "");
+  // AI 文案优先；失败/关闭回退 detail||label；连接提示覆盖 idle
+  $: bubbleText = hintText ? hintText : aiCopy || detail || label;
 
   // 拖拽 vs 点击：按下不立即拖拽；移动超阈值才 startDragging（OS 原生拖拽，自动处理 DPI）；
   // 无移动则为点击 → 确认“完成/出错”终态 / 打开连接设置。
@@ -195,14 +196,38 @@
   }
 
   function formatMeta(m: SessionMeta): string {
-    const parts = m.lastKey.split(":");
-    const source = parts[0] ?? "";
-    const sid = parts.slice(1).join(":").slice(0, 6);
-    const head = m.lastProject || sourceShort(source);
-    const who = sid ? `${head}·${sid}` : head;
-    if (m.filtered) return `锁定 ${who}`;
-    if (m.count > 1) return `全部·${m.count} · ${who}`;
-    return who;
+    const lockKey = m.filterKey || m.displayKey || m.lastKey;
+    const lockParts = lockKey.split(":");
+    const lockSrc = sourceShort(lockParts[0] ?? "");
+    const lockProj =
+      (m.filterKey ? m.displayProject : m.lastProject)?.trim() ||
+      m.displayProject?.trim() ||
+      m.lastProject?.trim() ||
+      "会话";
+    const lockedWho = `${lockSrc}·${lockProj}`;
+
+    const recentParts = m.lastKey.split(":");
+    const recentWho = `${sourceShort(recentParts[0] ?? "")}·${(m.lastProject?.trim() || "会话")}`;
+
+    if (m.filtered) {
+      let text = m.lost
+        ? `失联 ${lockedWho}`
+        : m.quiet
+          ? `锁定 ${lockedWho} · 暂无新事件`
+          : `锁定 ${lockedWho}`;
+      if (m.ignoredHint) text += ` · 已忽略 ${m.ignoredHint}`;
+      return text;
+    }
+    if (m.count > 1) return `全部·${m.count} · 刚收到 ${recentWho}`;
+    if (m.lastKey) return `刚收到 ${recentWho}`;
+    return "";
+  }
+
+  function onSessionBarClick(e: PointerEvent) {
+    e.stopPropagation();
+    if (!sessionFiltered || !sessionLost) return;
+    void invoke("set_session_filter", { key: null });
+    petState?.setFilter(null);
   }
 
   onMount(async () => {
@@ -231,6 +256,8 @@
       // 过滤模式下即使目标会话暂时无事件（count=0）也显示锁定目标
       sessionInfo = meta.count > 0 || meta.filtered ? formatMeta(meta) : "";
       sessionFiltered = meta.filtered;
+      sessionLost = meta.lost;
+      sessionQuiet = meta.quiet;
       renderer?.setAnim(animFor(s, meta.lastTool));
       requestCopy(s, d, meta);
       refreshConnectionHint();
@@ -257,6 +284,9 @@
       petState.handleEvent(ev);
     });
     unlistenFilter = await listenSessionFilter((key) => petState.setFilter(key));
+    unlistenAlive = await listenSessionAlive((p) => {
+      petState?.touchAlive(`${p.source}:${p.sessionId ?? ""}`, p.project);
+    });
     unlistenSettings = await listen<AppSettings>("settings-changed", (e) =>
       applySettings(e.payload)
     );
@@ -271,6 +301,7 @@
     renderer?.stop();
     unlisten?.();
     unlistenFilter?.();
+    unlistenAlive?.();
     unlistenSettings?.();
   });
 </script>
@@ -305,12 +336,19 @@
   <canvas bind:this={canvas}></canvas>
   <div class="chrome-bottom" style:height={`${PET_CHROME_BOTTOM}px`} style:max-width={`${Math.round(petSize * 0.98)}px`}>
     {#if sessionInfo}
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="session"
         class:filtered={sessionFiltered}
-        title="正在监听的会话。托盘右键 → 监听会话 可切换：全部 或 某个对话"
+        class:lost={sessionLost}
+        class:quiet={sessionQuiet}
+        class:clickable={sessionLost}
+        title={sessionLost
+          ? "锁定会话已失联，点击回全部会话"
+          : "正在监听的会话。托盘右键 → 监听会话 可切换：全部 或 某个对话"}
+        onpointerdown={onSessionBarClick}
       >
-        {sessionInfo}
+        {sessionInfo}{sessionLost ? " · 点此回全部" : ""}
       </div>
     {/if}
   </div>
@@ -395,6 +433,17 @@
   .session.filtered {
     background: rgba(37, 99, 235, 0.85);
     color: #eff6ff;
+  }
+  .session.quiet:not(.lost) {
+    background: rgba(71, 85, 105, 0.88);
+  }
+  .session.lost {
+    background: rgba(180, 83, 9, 0.92);
+    color: #fffbeb;
+  }
+  .session.clickable {
+    pointer-events: auto;
+    cursor: pointer;
   }
   .onboard {
     position: absolute;

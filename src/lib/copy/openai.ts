@@ -14,7 +14,7 @@ export async function openaiCopy(req: CopyRequest): Promise<string> {
   const text = await invoke<string>("chat_complete", {
     system,
     user,
-    maxTokens: req.kind === "terminal" ? 64 : 48,
+    maxTokens: req.kind === "terminal" ? 128 : 96,
   });
   return sanitize(text, req.kind === "terminal" ? 28 : 20);
 }

@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "0.3.3"
+version = "0.3.4"
 description = "A Tauri App"
 authors = ["you"]
 license = "MIT"
@@ -23,7 +23,7 @@ serde = { version = "1.0", features = ["derive"] }
 tiny_http = "0.12"
 log = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
-tauri = { version = "2.11.3", features = ["tray-icon"] }
+tauri = { version = "2.11.3", features = ["tray-icon", "image-png"] }
 tauri-plugin-log = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-updater = "2"
