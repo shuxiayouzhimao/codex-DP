@@ -19,6 +19,10 @@ export interface AppSettings {
   terminalNotify: boolean;
   /** openai 模式下仅终态走 API */
   copyAiTerminalOnly: boolean;
+  /** 连接提示：久无事件 / hooks 需补装（默认开） */
+  connectionHints: boolean;
+  /** 无事件多久后提示「好像没接到 Agent」（ms） */
+  silenceHintMs: number;
 }
 
 /** 缩放档 → 角色画布逻辑边长（不含气泡/会话条留白） */

@@ -151,6 +151,11 @@ export class FramePlayer {
     return (this.meta.outro ?? 0) > 0;
   }
 
+  /** 素材目标帧率（供渲染跳帧） */
+  fps(): number {
+    return this.meta.fps > 0 ? this.meta.fps : 10;
+  }
+
   outroDurationMs(): number {
     return outroDurationMs(this.meta.fps, this.meta.outro ?? 0);
   }

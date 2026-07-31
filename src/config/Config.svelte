@@ -342,6 +342,30 @@
         />
         进入完成/出错时闪烁任务栏提醒
       </label>
+      <label class="row">
+        <input
+          type="checkbox"
+          checked={settings.connectionHints !== false}
+          onchange={(e) => update({ connectionHints: e.currentTarget.checked })}
+        />
+        连接提示（久无事件 / hooks 需补装）
+      </label>
+      {#if settings.connectionHints !== false}
+        <div class="sub">
+          无事件多久提示：
+          {#each [
+            { ms: 15 * 60_000, label: "15 分钟" },
+            { ms: 30 * 60_000, label: "30 分钟" },
+            { ms: 60 * 60_000, label: "1 小时" },
+          ] as p}
+            <button
+              class="chip"
+              class:active={(settings.silenceHintMs || 30 * 60_000) === p.ms}
+              onclick={() => update({ silenceHintMs: p.ms })}>{p.label}</button
+            >
+          {/each}
+        </div>
+      {/if}
       {#if settings.clickToDismiss}
         <div class="sub">
           兜底时长（超时自动消失）：

@@ -14,6 +14,12 @@
   import type { AppSettings } from "./lib/settings";
   import { petLogicalSize, petWindowLogicalSize, PET_CHROME_TOP, PET_CHROME_BOTTOM } from "./lib/settings";
   import type { AgentState } from "./lib/types";
+  import type { HooksStatus } from "./lib/hooks-status";
+  import {
+    evaluateConnectionHint,
+    connectionHintText,
+    type ConnectionHintKind,
+  } from "./lib/connection-hints";
 
   let canvas: HTMLCanvasElement;
   let renderer: PetRenderer | null = null;
@@ -36,18 +42,55 @@
   let copyQueue: CopyQueue | null = null;
   const eventRing = new EventRing();
 
+  // 连接提示（P5）
+  let connectionHints = true;
+  let silenceHintMs = 30 * 60_000;
+  let onboardingDone = false;
+  let anyHooksInstalled = false;
+  let hooksNeedsUpdate = false;
+  let startedAt = Date.now();
+  let lastEventAt: number | null = null;
+  let silenceShown = false;
+  let bootHintShown = false;
+  let hintKind: ConnectionHintKind | null = null;
+  let hintTimer: ReturnType<typeof setInterval> | undefined;
+
   $: label = STATE_MAP[current].label;
   $: isTerminal = current === "completed" || current === "error-interrupted";
   $: isError = current === "error-interrupted";
-  // AI 文案优先；失败/关闭回退 detail||label；终态由 UI 追加「点击消散」
-  $: bubbleText =
-    (aiCopy || detail || label) + (isTerminal && clickToDismiss ? " · 点击消散" : "");
+  $: hintText = hintKind ? connectionHintText(hintKind) : "";
+  // AI 文案优先；失败/关闭回退 detail||label；终态由 UI 追加「点击消散」；连接提示覆盖 idle
+  $: bubbleText = hintText
+    ? hintText
+    : (aiCopy || detail || label) + (isTerminal && clickToDismiss ? " · 点击消散" : "");
 
   // 拖拽 vs 点击：按下不立即拖拽；移动超阈值才 startDragging（OS 原生拖拽，自动处理 DPI）；
-  // 无移动则为点击 → 确认“完成/出错”终态。
+  // 无移动则为点击 → 确认“完成/出错”终态 / 打开连接设置。
   const appWindow = getCurrentWindow();
   const DRAG_THRESHOLD = 6; // px
   let press: { x: number; y: number; dragging: boolean } | null = null;
+
+  function refreshConnectionHint() {
+    hintKind = evaluateConnectionHint({
+      enabled: connectionHints,
+      silenceMs: silenceHintMs,
+      onboardingDone,
+      anyInstalled: anyHooksInstalled,
+      needsUpdate: hooksNeedsUpdate,
+      displayIdle: current === "idle",
+      startedAt,
+      lastEventAt,
+      now: Date.now(),
+      silenceShown,
+      bootHintShown,
+    });
+  }
+
+  function applyHooksStatus(h: HooksStatus) {
+    anyHooksInstalled = h.sources.some((s) => s.installed);
+    hooksNeedsUpdate = h.sources.some((s) => s.needsUpdate);
+    refreshConnectionHint();
+  }
 
   function onPointerDown(e: PointerEvent) {
     if (e.button !== 0) return;
@@ -64,7 +107,16 @@
   }
   function onPointerUp(e: PointerEvent) {
     if (e.button !== 0) return;
-    if (press && !press.dragging) petState?.dismissTerminal();
+    if (press && !press.dragging) {
+      if (hintKind) {
+        if (hintKind === "silence") silenceShown = true;
+        if (hintKind === "needs-update") bootHintShown = true;
+        hintKind = null;
+        void invoke("open_config");
+      } else {
+        petState?.dismissTerminal();
+      }
+    }
     press = null;
   }
 
@@ -92,6 +144,9 @@
   function applySettings(s: AppSettings) {
     clickToDismiss = s.clickToDismiss;
     terminalNotify = s.terminalNotify !== false;
+    connectionHints = s.connectionHints !== false;
+    silenceHintMs = s.silenceHintMs > 0 ? s.silenceHintMs : 30 * 60_000;
+    onboardingDone = s.onboardingDone === true;
     renderer?.setSkin(s.skin);
     const size = petLogicalSize(s.petScale ?? 1);
     const win = petWindowLogicalSize(s.petScale ?? 1);
@@ -106,6 +161,7 @@
     });
     applyCopySettings(s);
     showOnboarding = s.onboardingDone === false;
+    refreshConnectionHint();
   }
 
   function dismissOnboarding() {
@@ -150,6 +206,7 @@
   }
 
   onMount(async () => {
+    startedAt = Date.now();
     renderer = new PetRenderer(canvas, 200);
     renderer.start();
     void renderer.loadSkins(); // 皮肤加载完即自动出现在下一帧，无需重启循环
@@ -176,6 +233,7 @@
       sessionFiltered = meta.filtered;
       renderer?.setAnim(animFor(s, meta.lastTool));
       requestCopy(s, d, meta);
+      refreshConnectionHint();
       // 切入终态时提醒（任务栏闪烁）；设置可关
       if (
         terminalNotify &&
@@ -187,6 +245,8 @@
     });
     unlisten = await startEventBridge((ev) => {
       if (!petState.willHandle(ev)) return;
+      lastEventAt = Date.now();
+      silenceShown = false;
       // 先入环再 handleEvent：onChange→requestCopy 时轨迹已含本条
       eventRing.push({
         state: ev.state,
@@ -201,9 +261,12 @@
       applySettings(e.payload)
     );
     void invoke<AppSettings>("get_settings").then(applySettings);
+    void invoke<HooksStatus>("hooks_status").then(applyHooksStatus).catch(() => undefined);
+    hintTimer = setInterval(refreshConnectionHint, 15_000);
     void checkForUpdates(); // 静默检查更新，不阻塞宠物启动
   });
   onDestroy(() => {
+    if (hintTimer) clearInterval(hintTimer);
     copyQueue?.destroy();
     renderer?.stop();
     unlisten?.();
@@ -229,7 +292,14 @@
     style:max-width={`${Math.round(petSize * 0.98)}px`}
   >
     {#if bubbleText}
-      <div class="bubble" class:terminal={isTerminal} class:error={isError}>{bubbleText}</div>
+      <div
+        class="bubble"
+        class:terminal={isTerminal}
+        class:error={isError}
+        class:hint={!!hintKind}
+      >
+        {bubbleText}
+      </div>
     {/if}
   </div>
   <canvas bind:this={canvas}></canvas>
@@ -305,6 +375,10 @@
   }
   .bubble.terminal.error {
     background: rgba(220, 38, 38, 0.88); /* 出错=红 */
+  }
+  .bubble.hint {
+    background: rgba(37, 99, 235, 0.88);
+    cursor: pointer;
   }
   .session {
     padding: 2px 8px;

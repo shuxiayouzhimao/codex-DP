@@ -75,6 +75,10 @@ pub(crate) struct Settings {
     pub terminal_notify: bool,
     /// openai 模式下仅终态走 API；工作态用规则模板
     pub copy_ai_terminal_only: bool,
+    /// 连接提示：久无事件 / hooks 需补装（默认开）
+    pub connection_hints: bool,
+    /// 无事件多久后提示「好像没接到 Agent」（ms）
+    pub silence_hint_ms: u64,
 }
 
 impl Default for Settings {
@@ -94,6 +98,8 @@ impl Default for Settings {
             pet_scale: 1.0,
             terminal_notify: true,
             copy_ai_terminal_only: false,
+            connection_hints: true,
+            silence_hint_ms: 30 * 60_000,
         }
     }
 }
@@ -105,6 +111,10 @@ pub(crate) struct AppState {
     pub(crate) router: EventRouter,
     pub(crate) tray: Mutex<Option<TrayIcon>>,
     pub(crate) settings: Mutex<Settings>,
+    /// 托盘菜单指纹（会话列表/过滤/皮肤/自启）；未变则跳过重建
+    pub(crate) menu_fp: Mutex<String>,
+    /// 菜单刷新已排队（防抖合并）
+    pub(crate) menu_refresh_pending: Mutex<bool>,
 }
 
 fn state_path(app: &tauri::AppHandle) -> std::path::PathBuf {
@@ -300,17 +310,61 @@ fn clamp_to_work_area(
     )
 }
 
-/// 刷新托盘菜单（在主线程执行）。会话列表变化或过滤选择变化后调用。
+/// 托盘菜单内容指纹：会话键/标签 + 过滤 + 皮肤 + 自启。同态工具切换不会改指纹。
+fn menu_fingerprint(app: &AppHandle) -> String {
+    let state = app.state::<AppState>();
+    let filter = state.router.get_filter().unwrap_or_default();
+    let sessions = state.router.list_sessions();
+    let skin = state.settings.lock().unwrap().skin.clone();
+    let autostart = app.autolaunch().is_enabled().unwrap_or(false);
+    let sess: String = sessions
+        .iter()
+        .map(|s| format!("{}={}", s.key, s.label))
+        .collect::<Vec<_>>()
+        .join("|");
+    format!("{filter}|{sess}|{skin}|{autostart}")
+}
+
+/// 刷新托盘菜单（主线程）。会话指纹未变则跳过；有变则 ≥400ms 合并重建。
 pub(crate) fn refresh_menu(app: &AppHandle) {
-    let handle = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        let state = handle.state::<AppState>();
-        let tray = state.tray.lock().unwrap();
-        if let Some(tray) = tray.as_ref() {
-            if let Ok(menu) = build_menu(&handle) {
-                let _ = tray.set_menu(Some(menu));
-            }
+    let fp = menu_fingerprint(app);
+    let state = app.state::<AppState>();
+    {
+        let last = state.menu_fp.lock().unwrap();
+        if *last == fp {
+            return;
         }
+    }
+    {
+        let mut pending = state.menu_refresh_pending.lock().unwrap();
+        if *pending {
+            return;
+        }
+        *pending = true;
+    }
+
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(400));
+        let main = handle.clone();
+        let _ = handle.run_on_main_thread(move || {
+            let state = main.state::<AppState>();
+            *state.menu_refresh_pending.lock().unwrap() = false;
+            let fp = menu_fingerprint(&main);
+            {
+                let mut last = state.menu_fp.lock().unwrap();
+                if *last == fp {
+                    return;
+                }
+                *last = fp;
+            }
+            let tray = state.tray.lock().unwrap();
+            if let Some(tray) = tray.as_ref() {
+                if let Ok(menu) = build_menu(&main) {
+                    let _ = tray.set_menu(Some(menu));
+                }
+            }
+        });
     });
 }
 
@@ -355,19 +409,7 @@ fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             apply_autostart(app, on);
         }
         "open-config" => {
-            println!("[pet-menu] open-config clicked");
-            match app.get_webview_window("config") {
-                Some(w) => {
-                    // 启动时若 Vite 尚未就绪，config 可能卡在 ERR_EMPTY_RESPONSE；
-                    // 打开时 reload 一次，避免一直显示错误页。
-                    let _ = w.reload();
-                    let _ = w.unminimize();
-                    let r = w.show();
-                    println!("[pet-menu] config show -> {:?}", r);
-                    let _ = w.set_focus();
-                }
-                None => println!("[pet-menu] config window MISSING（被销毁？）"),
-            }
+            open_config_window(app);
         }
         "reset-position" => {
             if let Err(e) = place_pet_default(app) {
@@ -401,6 +443,27 @@ fn on_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
             }
         }
     }
+}
+
+fn open_config_window(app: &AppHandle) {
+    println!("[pet-menu] open-config");
+    match app.get_webview_window("config") {
+        Some(w) => {
+            // 启动时若 Vite 尚未就绪，config 可能卡在 ERR_EMPTY_RESPONSE；
+            // 打开时 reload 一次，避免一直显示错误页。
+            let _ = w.reload();
+            let _ = w.unminimize();
+            let r = w.show();
+            println!("[pet-menu] config show -> {:?}", r);
+            let _ = w.set_focus();
+        }
+        None => println!("[pet-menu] config window MISSING（被销毁？）"),
+    }
+}
+
+#[tauri::command]
+fn open_config(app: AppHandle) {
+    open_config_window(&app);
 }
 
 #[tauri::command]
@@ -583,10 +646,13 @@ pub fn run() {
             router: EventRouter::default(),
             tray: Mutex::new(None),
             settings: Mutex::new(Settings::default()),
+            menu_fp: Mutex::new(String::new()),
+            menu_refresh_pending: Mutex::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
             set_settings,
+            open_config,
             chat_complete,
             show_pet_menu,
             hooks_status,
@@ -737,6 +803,8 @@ mod settings_tests {
         assert!((s.pet_scale - 1.0).abs() < f64::EPSILON);
         assert!(s.terminal_notify);
         assert!(!s.copy_ai_terminal_only);
+        assert!(s.connection_hints);
+        assert_eq!(s.silence_hint_ms, 30 * 60_000);
     }
 
     #[test]
@@ -772,5 +840,7 @@ mod settings_tests {
         assert!((s.pet_scale - 1.0).abs() < f64::EPSILON);
         assert!(s.terminal_notify);
         assert!(!s.copy_ai_terminal_only);
+        assert!(s.connection_hints);
+        assert_eq!(s.silence_hint_ms, 30 * 60_000);
     }
 }

@@ -40,6 +40,9 @@ export class PetRenderer {
   private pendingAnim: AnimName | null = null;
   /** 工作态之间：等到循环边界再切；只保留最新目标 */
   private deferredAnim: AnimName | null = null;
+  /** 上次实际绘制时刻（按目标 fps 跳帧） */
+  private lastDraw = 0;
+  private visHandler: (() => void) | null = null;
 
   /** once 动画播完回到 next 时回调（便于 UI 同步状态文案） */
   onAnimEnd: ((next: AnimName) => void) | null = null;
@@ -181,15 +184,41 @@ export class PetRenderer {
     if (this.running) return;
     this.running = true;
     this.animStart = performance.now();
+    this.lastDraw = 0;
+    if (!this.visHandler) {
+      this.visHandler = () => {
+        if (document.visibilityState === "visible" && this.running && !this.raf) {
+          this.lastDraw = 0;
+          this.raf = requestAnimationFrame(this.tick);
+        }
+      };
+      document.addEventListener("visibilitychange", this.visHandler);
+    }
     this.raf = requestAnimationFrame(this.tick);
   }
   stop() {
     this.running = false;
     cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    if (this.visHandler) {
+      document.removeEventListener("visibilitychange", this.visHandler);
+      this.visHandler = null;
+    }
+  }
+
+  /** 当前目标绘制帧率：帧序列用素材 fps，否则 ~12（变换动画足够） */
+  private targetFps(): number {
+    const player = this.framePlayers.get(this.skin)?.[this.anim];
+    if (player) return Math.min(player.fps(), 30);
+    return 12;
   }
 
   private tick = (now: number) => {
     if (!this.running) return;
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      this.raf = 0;
+      return;
+    }
     const def = ANIMATIONS[this.anim] ?? {};
     if (def.once && now - this.animStart >= (def.duration ?? 800)) {
       const next = def.next ?? "idle";
@@ -198,7 +227,11 @@ export class PetRenderer {
       this.onAnimEnd?.(next);
     }
     this.flushDeferred(now);
-    this.draw(ANIMATIONS[this.anim] ?? {}, now);
+    const minDt = 1000 / this.targetFps();
+    if (now - this.lastDraw >= minDt) {
+      this.lastDraw = now;
+      this.draw(ANIMATIONS[this.anim] ?? {}, now);
+    }
     this.raf = requestAnimationFrame(this.tick);
   };
 
