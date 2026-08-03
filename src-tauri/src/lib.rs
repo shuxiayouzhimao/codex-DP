@@ -472,17 +472,17 @@ fn open_config_window(app: &AppHandle) {
     println!("[pet-menu] open-config");
     match app.get_webview_window("config") {
         Some(w) => {
-            // 启动时若 Vite 尚未就绪，config 可能卡在 ERR_EMPTY_RESPONSE；
-            // 打开时 reload 一次，避免一直显示错误页。
-            let _ = w.reload();
+            // 配置窗点 X 只是隐藏，不销毁；不要每次 reload（会整页重载 + 再跑 hooks 检测，明显卡顿）。
+            // 冷启动 Vite 未就绪时若曾 ERR_EMPTY_RESPONSE，用户可关开一次桌宠；正常路径 show 即可。
             let _ = w.unminimize();
-            // 每次打开居中主屏（设置窗不记忆拖拽位置）
             if let Err(e) = w.center() {
                 eprintln!("[pet-menu] config center 失败: {e}");
             }
             let r = w.show();
             println!("[pet-menu] config show -> {:?}", r);
             let _ = w.set_focus();
+            // 通知前端后台刷新 hooks（不挡首帧）
+            let _ = app.emit("config-opened", ());
         }
         None => println!("[pet-menu] config window MISSING（被销毁？）"),
     }

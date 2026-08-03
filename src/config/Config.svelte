@@ -30,12 +30,14 @@
   let settings: AppSettings | null = null;
   let unlisten: UnlistenFn | undefined;
   let unlistenCopyErr: UnlistenFn | undefined;
+  let unlistenOpened: UnlistenFn | undefined;
   let tryPreview = "";
   let tryError = "";
   let trying = false;
   let copyLastError = "";
 
   let hooks: HooksStatus | null = null;
+  let hooksLoading = false;
   let hooksBusy = "";
   let hooksMsg = "";
   let hooksErr = "";
@@ -91,10 +93,13 @@
   }
 
   async function refreshHooks() {
+    hooksLoading = true;
     try {
       hooks = await invoke<HooksStatus>("hooks_status");
     } catch (e) {
       hooksErr = errText(e);
+    } finally {
+      hooksLoading = false;
     }
   }
 
@@ -165,22 +170,37 @@
     }
   }
 
-  onMount(async () => {
-    settings = await invoke<AppSettings>("get_settings");
-    // 右键菜单换肤等外部改动也反映到面板
-    unlisten = await listen<AppSettings>("settings-changed", (e) => {
-      settings = e.payload;
-    });
-    unlistenCopyErr = await listen<string | null>("copy-error", (e) => {
-      copyLastError = e.payload ?? "";
+  onMount(() => {
+    // 设置与 hooks 并行；hooks 慢也不挡其它分区渲染
+    void invoke<AppSettings>("get_settings").then((s) => {
+      settings = s;
     });
     void refreshHooks();
     void refreshSessions();
     sessionTimer = setInterval(() => void refreshSessions(), 3000);
+
+    void listen<AppSettings>("settings-changed", (e) => {
+      settings = e.payload;
+    }).then((u) => {
+      unlisten = u;
+    });
+    void listen<string | null>("copy-error", (e) => {
+      copyLastError = e.payload ?? "";
+    }).then((u) => {
+      unlistenCopyErr = u;
+    });
+    // 窗口再次显示时后台刷新（不再整页 reload）
+    void listen("config-opened", () => {
+      void refreshHooks();
+      void refreshSessions();
+    }).then((u) => {
+      unlistenOpened = u;
+    });
   });
   onDestroy(() => {
     unlisten?.();
     unlistenCopyErr?.();
+    unlistenOpened?.();
     if (sessionTimer !== undefined) clearInterval(sessionTimer);
   });
 </script>
@@ -213,6 +233,9 @@
           <span class="pill" class:ok={hooks.adaptersOk} class:bad={!hooks.adaptersOk}
             >adapters {hooks.adaptersOk ? "就绪" : "缺失"}</span
           >
+          {#if hooksLoading}
+            <span class="pill">刷新中…</span>
+          {/if}
         </div>
         {#if !hooks.nodeOk}
           <p class="warn-hint">未检测到 Node.js，无法安装 hooks。请先安装并确保 `node` 在 PATH 中。</p>
@@ -273,7 +296,12 @@
           >
         </div>
       {:else}
-        <p class="hint">加载 hooks 状态…</p>
+        <p class="hint">{hooksLoading ? "正在检测 Agent 连接…" : "暂未获取到连接状态，可点「刷新状态」"}</p>
+        {#if !hooksLoading}
+          <div class="sub">
+            <button class="chip ghost" onclick={() => void refreshHooks()}>刷新状态</button>
+          </div>
+        {/if}
       {/if}
       {#if hooksMsg}
         <p class="preview">{hooksMsg}</p>

@@ -2,10 +2,15 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
+
+/// `node -v` 结果缓存，避免每次打开设置都 spawn 进程卡 UI
+static NODE_VER_CACHE: Mutex<Option<(Instant, Option<String>)>> = Mutex::new(None);
+const NODE_VER_TTL: Duration = Duration::from_secs(300);
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -109,12 +114,25 @@ fn find_node() -> Result<PathBuf, String> {
 }
 
 fn node_version() -> Option<String> {
-    let node = find_node().ok()?;
-    let out = Command::new(node).arg("-v").output().ok()?;
-    if !out.status.success() {
-        return None;
+    if let Ok(guard) = NODE_VER_CACHE.lock() {
+        if let Some((at, ver)) = guard.as_ref() {
+            if at.elapsed() < NODE_VER_TTL {
+                return ver.clone();
+            }
+        }
     }
-    Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    let ver = (|| {
+        let node = find_node().ok()?;
+        let out = Command::new(node).arg("-v").output().ok()?;
+        if !out.status.success() {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    })();
+    if let Ok(mut guard) = NODE_VER_CACHE.lock() {
+        *guard = Some((Instant::now(), ver.clone()));
+    }
+    ver
 }
 
 /// 从 hooks 配置文本提取 pet-bridge.mjs 的绝对路径（引号内）。
